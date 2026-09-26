@@ -351,3 +351,57 @@ process()
 Connect an MCP client over stdio, discover the listed tools, then call `get_error_context`, `get_stack_trace`, `get_frame_variables` with the failing frame ID, and `get_source_context` with `script.py`, line `2`, and a small radius. `get_execution_path`, `get_event`, and `search_trace` provide further selective inspection. Each call records structured telemetry (tool, execution ID, duration, result size, success, and event count) through the backend logger.
 
 **The debugging agent and automatic repair are NOT implemented yet.** Module 4 only makes runtime context available to a future agent without returning the complete trace by default.
+
+---
+
+## 13. Dynamic Context Curation (Module 7)
+
+Dynamic Context Curation is the core research contribution of this project.
+
+Existing LLM-based software engineering systems often provide the entire source code and complete runtime execution traces to the model. This causes prompt bloat, excessive token consumption, unnecessary reasoning over irrelevant code, and increased computational/API cost.
+
+Instead of passing the full execution trace and full source to the agent, the **Context Curator** dynamically retrieves only the runtime context relevant to the current debugging state using the Model Context Protocol (MCP).
+
+```text
+    Execution
+        ↓
+    Runtime Trace
+        ↓
+    Trace Query Layer
+        ↓
+    MCP Server
+        ↓
+    Context Curator
+        ↓
+    Debugging Agent
+        ↓
+    Diagnosis / Repair
+```
+
+### Key Capabilities
+
+1. **Selective Retrieval**: The Curator explicitly decides what context to retrieve next (e.g. error → stack → variables → source).
+2. **Context Budgets**: Configurable limits restrict maximum tool calls, events retrieved, and lines of source code to prevent infinite loops and ensure measurable context reduction.
+3. **Investigation Directions**: Depending on the bug, the Curator investigates forwards, backwards, the call stack, or the execution path.
+4. **Telemetry Logging**: Every curation session records precise telemetry (context sizes, number of calls, limits, time spent, directions) to compare against a full-context baseline.
+5. **Language Agnostic**: Both Python and Java 17 are supported through the common trace/query abstraction.
+
+### Example Debugging Session
+
+For a simple division-by-zero error:
+```python
+def divide(a, b):
+    return a / b
+
+def process():
+    return divide(10, 0)
+
+process()
+```
+The curator dynamically executes a minimal tool sequence:
+1. `get_error_context()`
+2. `get_stack_trace()`
+3. `get_frame_variables()`
+4. `get_source_context()`
+
+It retrieves only a few kilobytes of evidence and stops as soon as sufficient evidence exists to explain the root cause. This achieves a significant context reduction compared to full-trace baseline models while preserving debugging accuracy.

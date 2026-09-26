@@ -48,6 +48,11 @@ class DebugDiagnosis(BaseModel):
     suggested_fix: str = Field(
         description="Practical code-level fix for the identified bug."
     )
+
+    telemetry: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Module 7 dynamic context telemetry data."
+    )
 class FixRequest(BaseModel):
     """
     Input given to the automatic fixing agent.
