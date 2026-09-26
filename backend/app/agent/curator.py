@@ -21,6 +21,7 @@ class CurationResult(BaseModel):
 
 logger = logging.getLogger("m7_curator")
 logger.setLevel(logging.INFO)
+logger.propagate = False
 # Prevent duplicate handlers if module is reloaded
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -45,6 +46,7 @@ class ContextCurator:
 
     async def curate(self, execution_id: str, initial_context: str | None = None) -> CurationResult:
         start_time = time.time()
+        stop_reason = "budget_limit_reached"
         
         state = {
             "execution_id": execution_id,
@@ -82,11 +84,16 @@ class ContextCurator:
                 "context_size": len(initial_context)
             }))
 
-        system_prompt = """You are the Dynamic Context Curator. 
+        tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
+        system_prompt = f"""You are the Dynamic Context Curator. 
 Your goal is to gather ONLY the runtime context relevant to diagnosing a failure.
 Do not retrieve everything. Start with get_error_context. 
-Based on the error, investigate backwards, forwards, stack, or path.
-If you have enough information to explain the root cause and line of failure, set is_sufficient to True.
+Based on the error, investigate backwards, forwards, stack, or path incrementally.
+
+Available tools:
+{tool_descriptions}
+
+CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root cause of the failure (e.g. you know exactly what failed and why), you MUST stop by setting is_sufficient to True and tool_name to null. Do not request unnecessary structural or project context just to confirm what you already know.
 """
 
         while state["remaining_budget"] > 0:
@@ -107,10 +114,12 @@ If you have enough information to explain the root cause and line of failure, se
                     "is_sufficient": decision.is_sufficient
                 }))
             except Exception as e:
+                stop_reason = "curator_error"
                 # Fallback if LLM fails
                 break
 
             if decision.is_sufficient:
+                stop_reason = "root_cause_identified"
                 logger.info(json.dumps({
                     "event": "root_cause_identified",
                     "execution_id": execution_id,
@@ -119,10 +128,11 @@ If you have enough information to explain the root cause and line of failure, se
                 break
                 
             if not decision.tool_name:
+                stop_reason = "no_further_context_available"
                 logger.info(json.dumps({
                     "event": "curation_stop",
                     "execution_id": execution_id,
-                    "reason": "Agent decided to stop."
+                    "reason": "Agent decided to stop without identifying root cause."
                 }))
                 break
                 
@@ -237,6 +247,7 @@ If you have enough information to explain the root cause and line of failure, se
 
         telemetry["investigation_directions"] = list(telemetry["investigation_directions"])
         telemetry["time_spent"] = time.time() - start_time
+        telemetry["stop_reason"] = stop_reason
         
         final_context = json.dumps(state["known_context"], indent=2)
         chars, _ = self._size(final_context)
@@ -251,7 +262,8 @@ If you have enough information to explain the root cause and line of failure, se
             "variables_retrieved": telemetry["variables_retrieved"],
             "total_curated_context_size": chars,
             "investigation_depth": telemetry["investigation_depth"],
-            "time_spent": telemetry["time_spent"]
+            "time_spent": telemetry["time_spent"],
+            "stop_reason": stop_reason
         }))
         
         return CurationResult(context=final_context, telemetry=telemetry)

@@ -58,13 +58,17 @@ async def test_curator_basic_flow(mock_llm_chain, mock_tools):
     assert "get_stack_trace" in result.telemetry["tools_used"]
     assert "stack" in result.telemetry["investigation_directions"]
     assert result.telemetry["investigation_depth"] == 2
+    assert result.telemetry["stop_reason"] == "root_cause_identified"
 
 
 @pytest.mark.asyncio
 async def test_curator_context_budget(mock_llm_chain, mock_tools):
-    # Simulate LLM wanting to call tools forever
+    # Simulate LLM wanting to call tools forever but with unique args
+    call_count = 0
     def side_effect(*args, **kwargs):
-        return RetrievalDecision(tool_name="get_error_context", tool_args={}, reason="Loop", is_sufficient=False, direction="initial")
+        nonlocal call_count
+        call_count += 1
+        return RetrievalDecision(tool_name="get_error_context", tool_args={"count": call_count}, reason="Loop", is_sufficient=False, direction="initial")
     
     mock_llm_chain.ainvoke.side_effect = side_effect
 
@@ -74,6 +78,7 @@ async def test_curator_context_budget(mock_llm_chain, mock_tools):
     result = await curator.curate("exec_123")
     
     assert result.telemetry["mcp_calls"] == 3
+    assert result.telemetry["stop_reason"] == "budget_limit_reached"
 
 
 @pytest.mark.asyncio
@@ -86,6 +91,7 @@ async def test_curator_stops_when_sufficient(mock_llm_chain, mock_tools):
     result = await curator.curate("exec_123")
     
     assert result.telemetry["mcp_calls"] == 0 # Stopped before tool execution
+    assert result.telemetry["stop_reason"] == "root_cause_identified"
 
 @pytest.mark.asyncio
 async def test_debugging_agent_uses_curator(mock_llm_chain, mock_tools):
