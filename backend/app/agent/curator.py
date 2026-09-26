@@ -86,11 +86,13 @@ class ContextCurator:
         try:
             result_obj = await session.call_tool(tool_name, arguments=tool_args)
             
-            if result_obj.structured_content is not None:
+            if getattr(result_obj, "isError", False):
+                result = {"error": "\n".join([c.text for c in getattr(result_obj, "content", []) if hasattr(c, "text")])}
+            elif getattr(result_obj, "structured_content", None) is not None:
                 result = result_obj.structured_content
             else:
                 output = []
-                for content in result_obj.content:
+                for content in getattr(result_obj, "content", []):
                     if hasattr(content, "text"):
                         output.append(content.text)
                 result = "\n".join(output)
@@ -110,10 +112,17 @@ class ContextCurator:
         telemetry["mcp_query_time"] += mcp_duration
         telemetry["mcp_total_time"] = telemetry["mcp_transport_time"] + telemetry["mcp_query_time"]
         
+        if getattr(result_obj, "isError", False) is True:
+            result = {"error": result} if isinstance(result, str) else {"error": str(result)}
+        elif isinstance(result, str) and ("rejected arguments" in result.lower() or "validation error" in result.lower() or "missing required" in result.lower()):
+            result = {"error": result}
+            
         chars, bytes_ = self._size(result)
         relevance = "high" if isinstance(result, dict) and "error" in result else "high" # simplify for now
-        if isinstance(result, dict) and "error" in result and len(result) == 1:
+        is_error = isinstance(result, dict) and "error" in result
+        if is_error:
             relevance = "low"
+            chars = 0
             
         context_entry = {
             "source": tool_name,
@@ -122,7 +131,12 @@ class ContextCurator:
             "data": result
         }
         
-        state["known_context"].append(context_entry)
+        if not is_error:
+            state["known_context"].append(context_entry)
+        else:
+            # We still need the LLM to know, so append a minimal failure notice,
+            # but the user requested not to count it as retrieved context size.
+            state["known_context"].append({"source": tool_name, "error": "rejected arguments or call failed", "data": result})
         
         telemetry["mcp_calls"] += 1
         if tool_name not in telemetry["tools_used"]:
@@ -133,17 +147,19 @@ class ContextCurator:
         vars_got = 0
         
         if tool_name == "get_event":
-            telemetry["events_retrieved"] += 1
-            events_got = 1
+            if not (isinstance(result, dict) and "error" in result):
+                telemetry["events_retrieved"] += 1
+                events_got = 1
         elif tool_name == "get_execution_path" or tool_name == "search_trace":
-            events_got = len(result) if isinstance(result, list) else 0
-            telemetry["events_retrieved"] += events_got
+            if isinstance(result, list):
+                events_got = len(result)
+                telemetry["events_retrieved"] += events_got
         elif tool_name == "get_source_context":
             if isinstance(result, dict) and "start_line" in result and "end_line" in result:
                 lines_got = (result["end_line"] - result["start_line"] + 1)
                 telemetry["source_lines_retrieved"] += lines_got
         elif tool_name == "get_frame_variables":
-            if isinstance(result, dict):
+            if isinstance(result, dict) and "error" not in result:
                 vars_got = len(result)
                 telemetry["variables_retrieved"] += vars_got
                 
@@ -230,7 +246,8 @@ class ContextCurator:
         telemetry["time_spent"] = time.time() - start_time
         telemetry["stop_reason"] = stop_reason if "stop_reason" not in telemetry else telemetry["stop_reason"]
         
-        final_context = json.dumps(state["known_context"], indent=2)
+        final_context_list = [ctx for ctx in state["known_context"] if "error" not in ctx]
+        final_context = json.dumps(final_context_list, indent=2)
         chars, _ = self._size(final_context)
         telemetry["total_curated_context_size"] = chars
         
@@ -270,8 +287,11 @@ class ContextCurator:
                     telemetry["investigation_depth"] += 1
                     telemetry["investigation_directions"].add("stack")
                     
+                    if isinstance(stack_trace, dict) and "result" in stack_trace:
+                        stack_trace = stack_trace["result"]
+                    
                     if isinstance(stack_trace, list) and len(stack_trace) > 0:
-                        top_frame = stack_trace[0]
+                        top_frame = stack_trace[-1]
                         # Deterministically get source code and variables for top frame
                         file = top_frame.get("file") or (isinstance(error_context, dict) and error_context.get("file"))
                         line = top_frame.get("line") or (isinstance(error_context, dict) and error_context.get("line"))
@@ -343,12 +363,13 @@ CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root c
                 break
                 
             if not decision.tool_calls:
-                telemetry["stop_reason"] = "no_further_context_available"
-                logger.info(json.dumps({
-                    "event": "curation_stop",
-                    "execution_id": execution_id,
-                    "reason": "Agent decided to stop without identifying root cause."
-                }))
+                if not decision.is_sufficient:
+                    telemetry["stop_reason"] = "no_further_context_available"
+                    logger.info(json.dumps({
+                        "event": "curation_stop",
+                        "execution_id": execution_id,
+                        "reason": "Agent decided to stop without identifying root cause. Investigation incomplete."
+                    }))
                 break
                 
             telemetry["investigation_depth"] += 1
