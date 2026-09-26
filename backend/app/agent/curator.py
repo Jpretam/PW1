@@ -8,9 +8,12 @@ from pydantic import BaseModel, Field
 from app.agent.llm import get_llm
 from app.agent.mcp_client import get_debugging_tools
 
+class ToolCall(BaseModel):
+    tool_name: str = Field(description="Name of the MCP tool to call")
+    tool_args: dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
+
 class RetrievalDecision(BaseModel):
-    tool_name: str | None = Field(description="Name of the tool to call next. Null if stopping.")
-    tool_args: dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool.")
+    tool_calls: list[ToolCall] = Field(default_factory=list, description="List of tools to call next. Empty if stopping.")
     reason: str = Field(description="Why this information is needed.")
     is_sufficient: bool = Field(description="True if enough context is gathered to diagnose the bug.")
     direction: str = Field(description="Investigation direction: 'forward', 'backward', 'stack', 'path', or 'initial'.")
@@ -37,12 +40,117 @@ class ContextCurator:
         self.decision_model = self.llm.with_structured_output(RetrievalDecision)
         
         self.max_calls = int(os.getenv("MAX_CONTEXT_CALLS", "10"))
-        self.max_events = int(os.getenv("MAX_CONTEXT_EVENTS", "50"))
-        self.max_lines = int(os.getenv("MAX_CONTEXT_LINES", "100"))
 
     def _size(self, obj: Any) -> tuple[int, int]:
         s = json.dumps(obj) if not isinstance(obj, str) else obj
         return len(s), len(s.encode('utf-8'))
+
+    async def _run_mcp_tool(self, tool_name: str, tool_args: dict, state: dict, telemetry: dict) -> Any:
+        tool = self.tools_by_name.get(tool_name)
+        if not tool:
+            return {"error": f"Tool {tool_name} not found"}
+            
+        if "execution_id" not in tool_args:
+            tool_args["execution_id"] = state["execution_id"]
+            
+        # Check for duplicate retrieval
+        is_duplicate = any(
+            entry["source"] == tool_name and entry.get("args") == tool_args 
+            for entry in state["known_context"]
+        )
+        
+        if is_duplicate:
+            logger.info(json.dumps({
+                "event": "duplicate_retrieval_skipped",
+                "execution_id": state["execution_id"],
+                "step": telemetry["mcp_calls"] + 1,
+                "mcp_tool_name": tool_name
+            }))
+            state["remaining_budget"] -= 1
+            return {"error": "duplicate skipped"}
+            
+        logger.info(json.dumps({
+            "event": "mcp_retrieval",
+            "execution_id": state["execution_id"],
+            "step": telemetry["mcp_calls"] + 1,
+            "mcp_tool_name": tool_name,
+            "tool_args": tool_args
+        }))
+        
+        mcp_start = time.time()
+        try:
+            result = await tool.ainvoke(tool_args)
+            
+            # If the result is a string but looks like JSON, try to parse it
+            if isinstance(result, str):
+                try:
+                    parsed = json.loads(result)
+                    result = parsed
+                except json.JSONDecodeError:
+                    pass
+                    
+        except Exception as e:
+            result = {"error": str(e)}
+        mcp_duration = time.time() - mcp_start
+        telemetry["mcp_time"] += mcp_duration
+        
+        chars, bytes_ = self._size(result)
+        relevance = "high" if isinstance(result, dict) and "error" in result else "high" # simplify for now
+        if isinstance(result, dict) and "error" in result and len(result) == 1:
+            relevance = "low"
+            
+        context_entry = {
+            "source": tool_name,
+            "args": tool_args,
+            "relevance": relevance,
+            "data": result
+        }
+        
+        state["known_context"].append(context_entry)
+        
+        telemetry["mcp_calls"] += 1
+        if tool_name not in telemetry["tools_used"]:
+            telemetry["tools_used"].append(tool_name)
+        
+        events_got = 0
+        lines_got = 0
+        vars_got = 0
+        
+        if tool_name == "get_event":
+            telemetry["events_retrieved"] += 1
+            events_got = 1
+        elif tool_name == "get_execution_path" or tool_name == "search_trace":
+            events_got = len(result) if isinstance(result, list) else 0
+            telemetry["events_retrieved"] += events_got
+        elif tool_name == "get_source_context":
+            if isinstance(result, dict) and "start_line" in result and "end_line" in result:
+                lines_got = (result["end_line"] - result["start_line"] + 1)
+                telemetry["source_lines_retrieved"] += lines_got
+        elif tool_name == "get_frame_variables":
+            if isinstance(result, dict):
+                vars_got = len(result)
+                telemetry["variables_retrieved"] += vars_got
+                
+        logger.info(json.dumps({
+            "event": "retrieval_result",
+            "execution_id": state["execution_id"],
+            "step": telemetry["mcp_calls"],
+            "mcp_tool_name": tool_name,
+            "context_size": chars,
+            "relevance": relevance,
+            "events_retrieved": events_got,
+            "source_lines_retrieved": lines_got,
+            "variables_retrieved": vars_got
+        }))
+        
+        state["remaining_budget"] -= 1
+        if state["remaining_budget"] == 0:
+            logger.info(json.dumps({
+                "event": "budget_limit_reached",
+                "execution_id": state["execution_id"]
+            }))
+            
+        return result
 
     async def curate(self, execution_id: str, initial_context: str | None = None) -> CurationResult:
         start_time = time.time()
@@ -51,7 +159,6 @@ class ContextCurator:
         state = {
             "execution_id": execution_id,
             "known_context": [],
-            "retrieval_history": [],
             "remaining_budget": self.max_calls,
         }
         
@@ -66,9 +173,11 @@ class ContextCurator:
             "total_curated_context_size": 0,
             "investigation_depth": 0,
             "investigation_directions": set(),
-            "time_spent": 0.0
+            "time_spent": 0.0,
+            "llm_calls": 0,
+            "llm_time": 0.0,
+            "mcp_time": 0.0
         }
-        
         
         logger.info(json.dumps({
             "event": "curation_start",
@@ -84,39 +193,73 @@ class ContextCurator:
                 "context_size": len(initial_context)
             }))
 
+        # PHASE 1: Deterministic initial retrieval (0 LLM calls)
+        if state["remaining_budget"] > 0:
+            error_context = await self._run_mcp_tool("get_error_context", {"execution_id": execution_id}, state, telemetry)
+            telemetry["investigation_depth"] += 1
+            telemetry["investigation_directions"].add("initial")
+            
+            # If we found a valid error, get stack trace
+            if error_context and not (isinstance(error_context, dict) and "error" in error_context):
+                if state["remaining_budget"] > 0:
+                    stack_trace = await self._run_mcp_tool("get_stack_trace", {"execution_id": execution_id}, state, telemetry)
+                    telemetry["investigation_depth"] += 1
+                    telemetry["investigation_directions"].add("stack")
+                    
+                    if isinstance(stack_trace, list) and len(stack_trace) > 0:
+                        top_frame = stack_trace[0]
+                        # Deterministically get source code and variables for top frame
+                        file = top_frame.get("file") or (isinstance(error_context, dict) and error_context.get("file"))
+                        line = top_frame.get("line") or (isinstance(error_context, dict) and error_context.get("line"))
+                        frame_id = top_frame.get("frame_id")
+                        
+                        if file and line and state["remaining_budget"] > 0:
+                            await self._run_mcp_tool("get_source_context", {"execution_id": execution_id, "file": file, "line": line}, state, telemetry)
+                            telemetry["investigation_depth"] += 1
+                            
+                        if frame_id is not None and state["remaining_budget"] > 0:
+                            await self._run_mcp_tool("get_frame_variables", {"execution_id": execution_id, "frame_id": frame_id}, state, telemetry)
+                            telemetry["investigation_depth"] += 1
+
+        # PHASE 2: LLM Curation (Only if necessary)
         tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
         system_prompt = f"""You are the Dynamic Context Curator. 
 Your goal is to gather ONLY the runtime context relevant to diagnosing a failure.
-Do not retrieve everything. Start with get_error_context. 
 Based on the error, investigate backwards, forwards, stack, or path incrementally.
 
 Available tools:
 {tool_descriptions}
 
-CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root cause of the failure (e.g. you know exactly what failed and why), you MUST stop by setting is_sufficient to True and tool_name to null. Do not request unnecessary structural or project context just to confirm what you already know.
+CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root cause of the failure (e.g. you know exactly what failed and why), you MUST stop by setting is_sufficient to True and tool_calls to an empty list. Do not request unnecessary structural or project context just to confirm what you already know.
 """
 
         while state["remaining_budget"] > 0:
-            prompt = f"Current State: {json.dumps(state['known_context'])}\nRemaining Budget: {state['remaining_budget']}\nWhat context should we retrieve next?"
+            prompt = f"Current State: {json.dumps(state['known_context'])}\nRemaining Budget: {state['remaining_budget']}\nWhat context should we retrieve next? If we have enough evidence to diagnose the bug, stop."
             
+            llm_start = time.time()
             try:
                 decision: RetrievalDecision = await self.decision_model.ainvoke([
                     ("system", system_prompt),
                     ("human", prompt)
                 ])
+                telemetry["llm_calls"] += 1
+                telemetry["llm_time"] += (time.time() - llm_start)
+                
                 logger.info(json.dumps({
                     "event": "curation_decision",
                     "execution_id": execution_id,
                     "step": telemetry["mcp_calls"] + 1,
-                    "mcp_tool_name": decision.tool_name,
+                    "mcp_tool_name": [t.tool_name for t in decision.tool_calls] if decision.tool_calls else None,
                     "reason": decision.reason,
                     "direction": decision.direction,
                     "is_sufficient": decision.is_sufficient
                 }))
             except Exception as e:
+                telemetry["llm_time"] += (time.time() - llm_start)
                 stop_reason = "curator_error"
-                # Fallback if LLM fails
                 break
+
+            telemetry["investigation_directions"].add(decision.direction)
 
             if decision.is_sufficient:
                 stop_reason = "root_cause_identified"
@@ -127,7 +270,7 @@ CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root c
                 }))
                 break
                 
-            if not decision.tool_name:
+            if not decision.tool_calls:
                 stop_reason = "no_further_context_available"
                 logger.info(json.dumps({
                     "event": "curation_stop",
@@ -136,114 +279,13 @@ CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root c
                 }))
                 break
                 
-            tool_name = decision.tool_name
-            tool_args = decision.tool_args
-            
-            if "execution_id" not in tool_args:
-                tool_args["execution_id"] = execution_id
-                
-            # Check for duplicate retrieval
-            is_duplicate = any(
-                entry["source"] == tool_name and entry.get("args") == tool_args 
-                for entry in state["known_context"]
-            )
-            
-            if is_duplicate:
-                logger.info(json.dumps({
-                    "event": "duplicate_retrieval_skipped",
-                    "execution_id": execution_id,
-                    "step": telemetry["mcp_calls"] + 1,
-                    "mcp_tool_name": tool_name
-                }))
-                # Avoid infinite loops by reducing budget and continuing
-                state["remaining_budget"] -= 1
-                continue
-
-            tool = self.tools_by_name.get(tool_name)
-            if not tool:
-                continue
-                
-            logger.info(json.dumps({
-                "event": "mcp_retrieval",
-                "execution_id": execution_id,
-                "step": telemetry["mcp_calls"] + 1,
-                "mcp_tool_name": tool_name,
-                "tool_args": tool_args
-            }))
-            
-            try:
-                result = await tool.ainvoke(tool_args)
-            except Exception as e:
-                result = {"error": str(e)}
-                
-            chars, bytes_ = self._size(result)
-            
-            # Simple relevance check: if it's not an error, we consider it relevant for now.
-            relevance = "high" if "error" not in result else "low"
-            
-            context_entry = {
-                "source": tool_name,
-                "args": tool_args,
-                "reason": decision.reason,
-                "relevance": relevance,
-                "data": result
-            }
-            
-            state["known_context"].append(context_entry)
-            
-            history_entry = {
-                "step": telemetry["mcp_calls"] + 1,
-                "tool": tool_name,
-                "reason": decision.reason,
-                "result_size": chars
-            }
-            state["retrieval_history"].append(history_entry)
-            
-            # Update telemetry
-            telemetry["mcp_calls"] += 1
-            if tool_name not in telemetry["tools_used"]:
-                telemetry["tools_used"].append(tool_name)
             telemetry["investigation_depth"] += 1
-            telemetry["investigation_directions"].add(decision.direction)
             
-            events_got = 0
-            lines_got = 0
-            vars_got = 0
-            
-            if tool_name == "get_event":
-                telemetry["events_retrieved"] += 1
-                events_got = 1
-            elif tool_name == "get_execution_path" or tool_name == "search_trace":
-                events_got = len(result) if isinstance(result, list) else 0
-                telemetry["events_retrieved"] += events_got
-            elif tool_name == "get_source_context":
-                if isinstance(result, dict) and "start_line" in result and "end_line" in result:
-                    lines_got = (result["end_line"] - result["start_line"] + 1)
-                    telemetry["source_lines_retrieved"] += lines_got
-            elif tool_name == "get_frame_variables":
-                if isinstance(result, dict):
-                    vars_got = len(result)
-                    telemetry["variables_retrieved"] += vars_got
-                    
-            logger.info(json.dumps({
-                "event": "retrieval_result",
-                "execution_id": execution_id,
-                "step": telemetry["mcp_calls"],
-                "mcp_tool_name": tool_name,
-                "context_size": chars,
-                "relevance": relevance,
-                "events_retrieved": events_got,
-                "source_lines_retrieved": lines_got,
-                "variables_retrieved": vars_got
-            }))
-            
-            state["remaining_budget"] -= 1
-            
-            if state["remaining_budget"] == 0:
-                logger.info(json.dumps({
-                    "event": "budget_limit_reached",
-                    "execution_id": execution_id
-                }))
+            # Execute requested tools
+            for call in decision.tool_calls:
+                if state["remaining_budget"] <= 0:
+                    break
+                await self._run_mcp_tool(call.tool_name, call.tool_args, state, telemetry)
 
         telemetry["investigation_directions"] = list(telemetry["investigation_directions"])
         telemetry["time_spent"] = time.time() - start_time
@@ -263,6 +305,9 @@ CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root c
             "total_curated_context_size": chars,
             "investigation_depth": telemetry["investigation_depth"],
             "time_spent": telemetry["time_spent"],
+            "llm_calls": telemetry["llm_calls"],
+            "llm_time": telemetry["llm_time"],
+            "mcp_time": telemetry["mcp_time"],
             "stop_reason": stop_reason
         }))
         

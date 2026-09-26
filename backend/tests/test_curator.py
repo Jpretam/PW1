@@ -3,7 +3,7 @@ import os
 import json
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from app.agent.curator import ContextCurator, RetrievalDecision
+from app.agent.curator import ContextCurator, RetrievalDecision, ToolCall
 from app.agent.models import DebugDiagnosis
 
 
@@ -22,11 +22,11 @@ def mock_tools():
     with patch("app.agent.curator.get_debugging_tools") as mock_get_tools:
         tool1 = MagicMock()
         tool1.name = "get_error_context"
-        tool1.ainvoke = AsyncMock(return_value={"error_type": "ZeroDivisionError", "line": 5})
+        tool1.ainvoke = AsyncMock(return_value={"error_type": "ZeroDivisionError", "line": 5, "file": "script.py"})
 
         tool2 = MagicMock()
         tool2.name = "get_stack_trace"
-        tool2.ainvoke = AsyncMock(return_value=[{"frame_id": 1, "function": "process", "line": 5}])
+        tool2.ainvoke = AsyncMock(return_value=[{"frame_id": 1, "function": "process", "line": 5, "file": "script.py"}])
 
         tool3 = MagicMock()
         tool3.name = "get_frame_variables"
@@ -44,20 +44,20 @@ def mock_tools():
 async def test_curator_basic_flow(mock_llm_chain, mock_tools):
     # LLM will decide to call get_error_context, then get_stack_trace, then stop.
     mock_llm_chain.ainvoke.side_effect = [
-        RetrievalDecision(tool_name="get_error_context", tool_args={}, reason="Get error", is_sufficient=False, direction="initial"),
-        RetrievalDecision(tool_name="get_stack_trace", tool_args={}, reason="Get stack", is_sufficient=False, direction="stack"),
-        RetrievalDecision(tool_name=None, tool_args={}, reason="Done", is_sufficient=True, direction="initial"),
+        RetrievalDecision(tool_calls=[ToolCall(tool_name="get_error_context", tool_args={})], reason="Get error", is_sufficient=False, direction="initial"),
+        RetrievalDecision(tool_calls=[ToolCall(tool_name="get_stack_trace", tool_args={})], reason="Get stack", is_sufficient=False, direction="stack"),
+        RetrievalDecision(tool_calls=[], reason="Done", is_sufficient=True, direction="initial"),
     ]
 
     curator = ContextCurator()
     result = await curator.curate("exec_123")
     
     assert "telemetry" in result.model_dump()
-    assert result.telemetry["mcp_calls"] == 2
+    assert result.telemetry["mcp_calls"] == 4 # 4 deterministic, duplicates skipped
     assert "get_error_context" in result.telemetry["tools_used"]
     assert "get_stack_trace" in result.telemetry["tools_used"]
     assert "stack" in result.telemetry["investigation_directions"]
-    assert result.telemetry["investigation_depth"] == 2
+    assert result.telemetry["investigation_depth"] == 6
     assert result.telemetry["stop_reason"] == "root_cause_identified"
 
 
@@ -68,7 +68,7 @@ async def test_curator_context_budget(mock_llm_chain, mock_tools):
     def side_effect(*args, **kwargs):
         nonlocal call_count
         call_count += 1
-        return RetrievalDecision(tool_name="get_error_context", tool_args={"count": call_count}, reason="Loop", is_sufficient=False, direction="initial")
+        return RetrievalDecision(tool_calls=[ToolCall(tool_name="get_error_context", tool_args={"count": call_count})], reason="Loop", is_sufficient=False, direction="initial")
     
     mock_llm_chain.ainvoke.side_effect = side_effect
 
@@ -84,13 +84,13 @@ async def test_curator_context_budget(mock_llm_chain, mock_tools):
 @pytest.mark.asyncio
 async def test_curator_stops_when_sufficient(mock_llm_chain, mock_tools):
     mock_llm_chain.ainvoke.side_effect = [
-        RetrievalDecision(tool_name="get_error_context", tool_args={}, reason="Check error", is_sufficient=True, direction="initial"),
+        RetrievalDecision(tool_calls=[], reason="Check error", is_sufficient=True, direction="initial"),
     ]
 
     curator = ContextCurator()
     result = await curator.curate("exec_123")
     
-    assert result.telemetry["mcp_calls"] == 0 # Stopped before tool execution
+    assert result.telemetry["mcp_calls"] == 4 # 4 deterministic calls
     assert result.telemetry["stop_reason"] == "root_cause_identified"
 
 @pytest.mark.asyncio
