@@ -117,7 +117,7 @@ async def test_curator_handles_llm_error(mock_llm_chain, mock_mcp_session):
     assert result.telemetry["llm_calls"] == 1
     assert result.telemetry["llm_successes"] == 0
     assert result.telemetry["llm_failures"] == 1
-    assert result.telemetry["stop_reason"] == "curator_error"
+    assert result.telemetry["stop_reason"] == "llm_rate_limit_exceeded"
 
 
 @pytest.mark.asyncio

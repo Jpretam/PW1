@@ -322,7 +322,13 @@ CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root c
             except Exception as e:
                 telemetry["llm_failures"] += 1
                 telemetry["llm_time"] += (time.time() - llm_start)
-                telemetry["stop_reason"] = "curator_error"
+                error_msg = repr(e)
+                if "429" in error_msg or "Too Many Requests" in error_msg or "Rate limit exceeded" in error_msg or "free-models-per-day" in error_msg:
+                    telemetry["stop_reason"] = "llm_rate_limit_exceeded"
+                    logger.warning(f"LLM rate limit exceeded during curation: {error_msg}")
+                else:
+                    telemetry["stop_reason"] = "curator_error"
+                    logger.warning(f"LLM error during curation: {error_msg}")
                 break
 
             telemetry["investigation_directions"].add(decision.direction)
