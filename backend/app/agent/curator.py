@@ -8,6 +8,11 @@ from pydantic import BaseModel, Field
 from app.agent.llm import get_llm
 from app.agent.mcp_client import get_debugging_tools
 
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+MCP_SERVER_URL = "http://localhost:8000/mcp"
+
 class ToolCall(BaseModel):
     tool_name: str = Field(description="Name of the MCP tool to call")
     tool_args: dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
@@ -45,7 +50,7 @@ class ContextCurator:
         s = json.dumps(obj) if not isinstance(obj, str) else obj
         return len(s), len(s.encode('utf-8'))
 
-    async def _run_mcp_tool(self, tool_name: str, tool_args: dict, state: dict, telemetry: dict) -> Any:
+    async def _run_mcp_tool(self, tool_name: str, tool_args: dict, state: dict, telemetry: dict, session: ClientSession) -> Any:
         tool = self.tools_by_name.get(tool_name)
         if not tool:
             return {"error": f"Tool {tool_name} not found"}
@@ -79,7 +84,16 @@ class ContextCurator:
         
         mcp_start = time.time()
         try:
-            result = await tool.ainvoke(tool_args)
+            result_obj = await session.call_tool(tool_name, arguments=tool_args)
+            
+            if result_obj.structured_content is not None:
+                result = result_obj.structured_content
+            else:
+                output = []
+                for content in result_obj.content:
+                    if hasattr(content, "text"):
+                        output.append(content.text)
+                result = "\n".join(output)
             
             # If the result is a string but looks like JSON, try to parse it
             if isinstance(result, str):
@@ -91,8 +105,10 @@ class ContextCurator:
                     
         except Exception as e:
             result = {"error": str(e)}
+            
         mcp_duration = time.time() - mcp_start
-        telemetry["mcp_time"] += mcp_duration
+        telemetry["mcp_query_time"] += mcp_duration
+        telemetry["mcp_total_time"] = telemetry["mcp_transport_time"] + telemetry["mcp_query_time"]
         
         chars, bytes_ = self._size(result)
         relevance = "high" if isinstance(result, dict) and "error" in result else "high" # simplify for now
@@ -175,8 +191,12 @@ class ContextCurator:
             "investigation_directions": set(),
             "time_spent": 0.0,
             "llm_calls": 0,
+            "llm_successes": 0,
+            "llm_failures": 0,
             "llm_time": 0.0,
-            "mcp_time": 0.0
+            "mcp_query_time": 0.0,
+            "mcp_transport_time": 0.0,
+            "mcp_total_time": 0.0
         }
         
         logger.info(json.dumps({
@@ -193,16 +213,60 @@ class ContextCurator:
                 "context_size": len(initial_context)
             }))
 
+        try:
+            transport_start = time.time()
+            async with streamable_http_client(MCP_SERVER_URL) as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    telemetry["mcp_transport_time"] = time.time() - transport_start
+                    telemetry["mcp_total_time"] += telemetry["mcp_transport_time"]
+                    
+                    await self._curate_loop(execution_id, state, telemetry, session)
+        except Exception as e:
+            stop_reason = f"mcp_transport_error: {str(e)}"
+            telemetry["stop_reason"] = stop_reason
+            
+        telemetry["investigation_directions"] = list(telemetry["investigation_directions"])
+        telemetry["time_spent"] = time.time() - start_time
+        telemetry["stop_reason"] = stop_reason if "stop_reason" not in telemetry else telemetry["stop_reason"]
+        
+        final_context = json.dumps(state["known_context"], indent=2)
+        chars, _ = self._size(final_context)
+        telemetry["total_curated_context_size"] = chars
+        
+        logger.info(json.dumps({
+            "event": "curation_summary",
+            "execution_id": execution_id,
+            "mcp_calls": telemetry["mcp_calls"],
+            "events_retrieved": telemetry["events_retrieved"],
+            "source_lines_retrieved": telemetry["source_lines_retrieved"],
+            "variables_retrieved": telemetry["variables_retrieved"],
+            "total_curated_context_size": chars,
+            "investigation_depth": telemetry["investigation_depth"],
+            "time_spent": telemetry["time_spent"],
+            "llm_calls": telemetry["llm_calls"],
+            "llm_successes": telemetry["llm_successes"],
+            "llm_failures": telemetry["llm_failures"],
+            "llm_time": telemetry["llm_time"],
+            "mcp_query_time": telemetry["mcp_query_time"],
+            "mcp_transport_time": telemetry["mcp_transport_time"],
+            "mcp_total_time": telemetry["mcp_total_time"],
+            "stop_reason": telemetry.get("stop_reason", "unknown")
+        }))
+        
+        return CurationResult(context=final_context, telemetry=telemetry)
+
+    async def _curate_loop(self, execution_id: str, state: dict, telemetry: dict, session: ClientSession):
         # PHASE 1: Deterministic initial retrieval (0 LLM calls)
         if state["remaining_budget"] > 0:
-            error_context = await self._run_mcp_tool("get_error_context", {"execution_id": execution_id}, state, telemetry)
+            error_context = await self._run_mcp_tool("get_error_context", {"execution_id": execution_id}, state, telemetry, session)
             telemetry["investigation_depth"] += 1
             telemetry["investigation_directions"].add("initial")
             
             # If we found a valid error, get stack trace
             if error_context and not (isinstance(error_context, dict) and "error" in error_context):
                 if state["remaining_budget"] > 0:
-                    stack_trace = await self._run_mcp_tool("get_stack_trace", {"execution_id": execution_id}, state, telemetry)
+                    stack_trace = await self._run_mcp_tool("get_stack_trace", {"execution_id": execution_id}, state, telemetry, session)
                     telemetry["investigation_depth"] += 1
                     telemetry["investigation_directions"].add("stack")
                     
@@ -214,11 +278,11 @@ class ContextCurator:
                         frame_id = top_frame.get("frame_id")
                         
                         if file and line and state["remaining_budget"] > 0:
-                            await self._run_mcp_tool("get_source_context", {"execution_id": execution_id, "file": file, "line": line}, state, telemetry)
+                            await self._run_mcp_tool("get_source_context", {"execution_id": execution_id, "file": file, "line": line}, state, telemetry, session)
                             telemetry["investigation_depth"] += 1
                             
                         if frame_id is not None and state["remaining_budget"] > 0:
-                            await self._run_mcp_tool("get_frame_variables", {"execution_id": execution_id, "frame_id": frame_id}, state, telemetry)
+                            await self._run_mcp_tool("get_frame_variables", {"execution_id": execution_id, "frame_id": frame_id}, state, telemetry, session)
                             telemetry["investigation_depth"] += 1
 
         # PHASE 2: LLM Curation (Only if necessary)
@@ -237,12 +301,13 @@ CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root c
             prompt = f"Current State: {json.dumps(state['known_context'])}\nRemaining Budget: {state['remaining_budget']}\nWhat context should we retrieve next? If we have enough evidence to diagnose the bug, stop."
             
             llm_start = time.time()
+            telemetry["llm_calls"] += 1
             try:
                 decision: RetrievalDecision = await self.decision_model.ainvoke([
                     ("system", system_prompt),
                     ("human", prompt)
                 ])
-                telemetry["llm_calls"] += 1
+                telemetry["llm_successes"] += 1
                 telemetry["llm_time"] += (time.time() - llm_start)
                 
                 logger.info(json.dumps({
@@ -255,14 +320,15 @@ CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root c
                     "is_sufficient": decision.is_sufficient
                 }))
             except Exception as e:
+                telemetry["llm_failures"] += 1
                 telemetry["llm_time"] += (time.time() - llm_start)
-                stop_reason = "curator_error"
+                telemetry["stop_reason"] = "curator_error"
                 break
 
             telemetry["investigation_directions"].add(decision.direction)
 
             if decision.is_sufficient:
-                stop_reason = "root_cause_identified"
+                telemetry["stop_reason"] = "root_cause_identified"
                 logger.info(json.dumps({
                     "event": "root_cause_identified",
                     "execution_id": execution_id,
@@ -271,7 +337,7 @@ CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root c
                 break
                 
             if not decision.tool_calls:
-                stop_reason = "no_further_context_available"
+                telemetry["stop_reason"] = "no_further_context_available"
                 logger.info(json.dumps({
                     "event": "curation_stop",
                     "execution_id": execution_id,
@@ -285,30 +351,4 @@ CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root c
             for call in decision.tool_calls:
                 if state["remaining_budget"] <= 0:
                     break
-                await self._run_mcp_tool(call.tool_name, call.tool_args, state, telemetry)
-
-        telemetry["investigation_directions"] = list(telemetry["investigation_directions"])
-        telemetry["time_spent"] = time.time() - start_time
-        telemetry["stop_reason"] = stop_reason
-        
-        final_context = json.dumps(state["known_context"], indent=2)
-        chars, _ = self._size(final_context)
-        telemetry["total_curated_context_size"] = chars
-        
-        logger.info(json.dumps({
-            "event": "curation_summary",
-            "execution_id": execution_id,
-            "mcp_calls": telemetry["mcp_calls"],
-            "events_retrieved": telemetry["events_retrieved"],
-            "source_lines_retrieved": telemetry["source_lines_retrieved"],
-            "variables_retrieved": telemetry["variables_retrieved"],
-            "total_curated_context_size": chars,
-            "investigation_depth": telemetry["investigation_depth"],
-            "time_spent": telemetry["time_spent"],
-            "llm_calls": telemetry["llm_calls"],
-            "llm_time": telemetry["llm_time"],
-            "mcp_time": telemetry["mcp_time"],
-            "stop_reason": stop_reason
-        }))
-        
-        return CurationResult(context=final_context, telemetry=telemetry)
+                await self._run_mcp_tool(call.tool_name, call.tool_args, state, telemetry, session)

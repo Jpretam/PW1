@@ -11,3 +11,12 @@
   "code": "public class Main { public static void main(String[] args) { System.out.println(\"Missing Semicolon\") } }",
   "stdin": ""
 }
+
+def calculate(x):
+    return 10 / x
+
+def process():
+    value = 0
+    return calculate(value)
+
+process()
