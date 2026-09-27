@@ -147,12 +147,32 @@ Rules:
 
     @staticmethod
     def _clean_code(code_str: str) -> str:
-        lines = code_str.strip().splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
+        import re
+        text = code_str.strip()
+        code_block_match = re.search(r"```(?:[a-zA-Z0-9_\-]+)?\s*\n(.*?)```", text, re.DOTALL)
+        if code_block_match:
+            text = code_block_match.group(1).strip()
+        else:
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+            
+        cleaned_lines = text.splitlines()
+        while cleaned_lines and (
+            cleaned_lines[0].lower().startswith(("here ", "here's", "sure", "below ", "note:", "the corrected"))
+            or (cleaned_lines[0].strip().endswith(":") and not cleaned_lines[0].strip().startswith(("def ", "class ", "if ", "for ", "while ", "try", "except", "with ", "public ", "import ", "from ")))
+        ):
+            cleaned_lines.pop(0)
+
+        while cleaned_lines and (
+            cleaned_lines[-1].lower().startswith(("explanation:", "note:", "this fixes", "this code", "let me know", "hope this"))
+        ):
+            cleaned_lines.pop(-1)
+
+        return "\n".join(cleaned_lines).strip()
 
     @staticmethod
     def _heuristic_fix(source_code: str, error_desc: Any, language_enum: ExecutionLanguage) -> str | None:
