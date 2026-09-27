@@ -57,6 +57,16 @@ class ContextCurator:
             
         if "execution_id" not in tool_args:
             tool_args["execution_id"] = state["execution_id"]
+
+        if tool_name == "get_source_context":
+            if not tool_args.get("file") or not tool_args.get("line"):
+                for entry in state.get("known_context", []):
+                    data = entry.get("data")
+                    if isinstance(data, dict):
+                        if not tool_args.get("file") and data.get("file"):
+                            tool_args["file"] = data.get("file")
+                        if not tool_args.get("line") and data.get("line"):
+                            tool_args["line"] = data.get("line")
             
         # Check for duplicate retrieval
         is_duplicate = any(
@@ -290,20 +300,35 @@ class ContextCurator:
                     if isinstance(stack_trace, dict) and "result" in stack_trace:
                         stack_trace = stack_trace["result"]
                     
-                    if isinstance(stack_trace, list) and len(stack_trace) > 0:
-                        top_frame = stack_trace[-1]
-                        # Deterministically get source code and variables for top frame
-                        file = top_frame.get("file") or (isinstance(error_context, dict) and error_context.get("file"))
-                        line = top_frame.get("line") or (isinstance(error_context, dict) and error_context.get("line"))
-                        frame_id = top_frame.get("frame_id")
+                    top_frame = stack_trace[-1] if (isinstance(stack_trace, list) and len(stack_trace) > 0) else {}
+                    # Deterministically get source code and variables for top frame or error location
+                    file = top_frame.get("file") or (isinstance(error_context, dict) and error_context.get("file"))
+                    line = top_frame.get("line") or (isinstance(error_context, dict) and error_context.get("line"))
+                    frame_id = top_frame.get("frame_id")
+                    
+                    if file and line and state["remaining_budget"] > 0:
+                        await self._run_mcp_tool("get_source_context", {"execution_id": execution_id, "file": file, "line": line}, state, telemetry, session)
+                        telemetry["investigation_depth"] += 1
                         
-                        if file and line and state["remaining_budget"] > 0:
-                            await self._run_mcp_tool("get_source_context", {"execution_id": execution_id, "file": file, "line": line}, state, telemetry, session)
-                            telemetry["investigation_depth"] += 1
-                            
-                        if frame_id is not None and state["remaining_budget"] > 0:
-                            await self._run_mcp_tool("get_frame_variables", {"execution_id": execution_id, "frame_id": frame_id}, state, telemetry, session)
-                            telemetry["investigation_depth"] += 1
+                    if frame_id is not None and state["remaining_budget"] > 0:
+                        await self._run_mcp_tool("get_frame_variables", {"execution_id": execution_id, "frame_id": frame_id}, state, telemetry, session)
+                        telemetry["investigation_depth"] += 1
+
+                # Fast path: For syntax, parse, or compilation errors where source lines are already fetched,
+                # no dynamic execution paths, traces, or variables exist.
+                err_type = str(error_context.get("error_type", "") if isinstance(error_context, dict) else "").lower()
+                err_msg = str(error_context.get("message", "") if isinstance(error_context, dict) else "").lower()
+                is_static_error = any(k in err_type or k in err_msg for k in ["syntaxerror", "compilation", "compile", "unterminated", "indentationerror"])
+                has_source = any(entry.get("source") == "get_source_context" for entry in state.get("known_context", []))
+                
+                if is_static_error and has_source:
+                    telemetry["stop_reason"] = "root_cause_identified"
+                    logger.info(json.dumps({
+                        "event": "root_cause_identified",
+                        "execution_id": execution_id,
+                        "reason": f"Identified static failure '{err_type}' with full source code context. No dynamic runtime trace exists."
+                    }))
+                    return
 
         # PHASE 2: LLM Curation (Only if necessary)
         tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
@@ -314,7 +339,10 @@ Based on the error, investigate backwards, forwards, stack, or path incrementall
 Available tools:
 {tool_descriptions}
 
-CRITICAL STOPPING RULE: Once you have sufficient evidence to identify the root cause of the failure (e.g. you know exactly what failed and why), you MUST stop by setting is_sufficient to True and tool_calls to an empty list. Do not request unnecessary structural or project context just to confirm what you already know.
+CRITICAL STOPPING RULES:
+1. Once you have sufficient evidence to identify the root cause of the failure (e.g. you know what failed, on what line, and the source code and variables are present), you MUST stop immediately by setting is_sufficient to True and tool_calls to an empty list.
+2. For syntax errors, parse errors, or compilation errors, there are NO runtime execution paths or trace events. Once the error context and failing source code lines are present, DO NOT call get_execution_path, search_trace, or get_event. Stop immediately with is_sufficient = True.
+3. Do not retrieve redundant or already known information.
 """
 
         while state["remaining_budget"] > 0:

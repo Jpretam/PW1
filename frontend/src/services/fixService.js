@@ -7,7 +7,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 45000,
+  timeout: 180000, // 3 minutes to accommodate multi-step LLM curation & validation
 });
 
 export async function diagnoseExecution(executionId) {
@@ -21,14 +21,14 @@ export async function diagnoseExecution(executionId) {
     });
     return response.data;
   } catch (error) {
-    if (error.response && error.response.status === 500) {
-      throw new Error('Unable to generate fix. Please try again.');
-    } else if (error.code === 'ECONNABORTED') {
-      throw new Error('Unable to generate fix. Please try again.');
+    if (error.code === 'ECONNABORTED') {
+      throw new Error('Diagnosis timed out. The AI model is taking longer than expected.');
     } else if (error.response && error.response.data && error.response.data.detail) {
       throw new Error(error.response.data.detail);
+    } else if (error.response && error.response.status === 500) {
+      throw new Error('Diagnosis service encountered an error. Please try again.');
     } else {
-      throw new Error('Unable to generate fix. Please try again.');
+      throw new Error(error.message || 'Unable to generate diagnosis. Please try again.');
     }
   }
 }
@@ -45,14 +45,14 @@ export async function fixExecution(executionId, maxAttempts = 3) {
     });
     return response.data;
   } catch (error) {
-    if (error.response && error.response.status === 500) {
-      throw new Error('Unable to generate fix. Please try again.');
-    } else if (error.code === 'ECONNABORTED') {
-      throw new Error('Unable to generate fix. Please try again.');
+    if (error.code === 'ECONNABORTED') {
+      throw new Error('Fix generation timed out. The AI model is taking longer than expected.');
     } else if (error.response && error.response.data && error.response.data.detail) {
       throw new Error(error.response.data.detail);
+    } else if (error.response && error.response.status === 500) {
+      throw new Error('Bug fixing service encountered an error. Please try again.');
     } else {
-      throw new Error('Unable to generate fix. Please try again.');
+      throw new Error(error.message || 'Unable to generate fix. Please try again.');
     }
   }
 }

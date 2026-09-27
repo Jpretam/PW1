@@ -166,7 +166,7 @@ export default function App() {
     } catch (err) {
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
-      setFixError('Unable to generate fix. Please try again.');
+      setFixError(err.message || 'Unable to generate fix. Please try again.');
     } finally {
       setIsFixing(false);
       setFixStep('');

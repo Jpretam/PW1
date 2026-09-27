@@ -31,6 +31,9 @@ def mock_mcp_session():
             
             async def call_tool(name, arguments):
                 mock_result = MagicMock()
+                # MagicMock auto-creates truthy child attrs; must set isError=False explicitly
+                # otherwise `getattr(result_obj, "isError", False)` returns a truthy MagicMock.
+                mock_result.isError = False
                 if name == "get_error_context":
                     mock_result.structured_content = {"error_type": "ZeroDivisionError", "line": 5, "file": "script.py"}
                 elif name == "get_stack_trace":
