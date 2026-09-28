@@ -22,12 +22,14 @@ class FixerAgent:
         self,
         execution_id: str,
         max_attempts: int = 3,
+        mode: str = "dynamic",
     ) -> FixResult:
         current_execution_id = execution_id
         original_diagnosis: DebugDiagnosis | None = None
         last_fixed_code: str | None = None
         final_execution_id: str | None = None
         final_error: dict[str, Any] | None = None
+        cumulative_telemetry: dict[str, Any] = {}
 
         for attempt in range(1, max_attempts + 1):
             trace = self.store.get_execution(current_execution_id)
@@ -44,10 +46,15 @@ class FixerAgent:
 
             source_code = list(trace.source_files.values())[0] if trace.source_files else ""
 
-            # 1. Diagnose runtime failure
-            diagnosis = await self.debugger.diagnose(execution_id=current_execution_id)
+            # 1. Diagnose runtime failure with specified evaluation mode
+            diagnosis = await self.debugger.diagnose(
+                execution_id=current_execution_id,
+                mode=mode,
+            )
             if attempt == 1:
                 original_diagnosis = diagnosis
+                if diagnosis.telemetry:
+                    cumulative_telemetry = dict(diagnosis.telemetry)
 
             error_desc = (
                 diagnosis.error
@@ -116,6 +123,7 @@ Rules:
                     attempts=attempt,
                     final_execution_id=final_execution_id,
                     final_error=None,
+                    telemetry=cumulative_telemetry,
                 )
 
             final_error = {
@@ -143,6 +151,7 @@ Rules:
             attempts=max_attempts,
             final_execution_id=final_execution_id,
             final_error=final_error,
+            telemetry=cumulative_telemetry,
         )
 
     @staticmethod

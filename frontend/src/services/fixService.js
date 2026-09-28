@@ -10,7 +10,7 @@ const apiClient = axios.create({
   timeout: 180000, // 3 minutes to accommodate multi-step LLM curation & validation
 });
 
-export async function diagnoseExecution(executionId) {
+export async function diagnoseExecution(executionId, mode = 'dynamic') {
   if (!executionId) {
     throw new Error('Execution ID is required for diagnosis.');
   }
@@ -18,6 +18,7 @@ export async function diagnoseExecution(executionId) {
   try {
     const response = await apiClient.post('/debug/diagnose', {
       execution_id: executionId,
+      mode,
     });
     return response.data;
   } catch (error) {
@@ -33,7 +34,7 @@ export async function diagnoseExecution(executionId) {
   }
 }
 
-export async function fixExecution(executionId, maxAttempts = 3) {
+export async function fixExecution(executionId, maxAttempts = 3, mode = 'dynamic') {
   if (!executionId) {
     throw new Error('Execution ID is required for automatic fixing.');
   }
@@ -42,6 +43,7 @@ export async function fixExecution(executionId, maxAttempts = 3) {
     const response = await apiClient.post('/debug/fix', {
       execution_id: executionId,
       max_attempts: maxAttempts,
+      mode,
     });
     return response.data;
   } catch (error) {

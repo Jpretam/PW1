@@ -10,6 +10,10 @@ class DebugRequest(BaseModel):
 
     execution_id: str
     initial_context: Optional[str] = None
+    mode: Optional[str] = Field(
+        default="dynamic",
+        description="Evaluation mode: 'baseline' (full context) or 'dynamic' (curated context).",
+    )
 
 
 class DebugDiagnosis(BaseModel):
@@ -53,6 +57,8 @@ class DebugDiagnosis(BaseModel):
         default=None,
         description="Module 7 dynamic context telemetry data."
     )
+
+
 class FixRequest(BaseModel):
     """
     Input given to the automatic fixing agent.
@@ -61,6 +67,11 @@ class FixRequest(BaseModel):
     execution_id: str
 
     max_attempts: int = 3
+
+    mode: Optional[str] = Field(
+        default="dynamic",
+        description="Evaluation mode: 'baseline' (full context) or 'dynamic' (curated context).",
+    )
 
 
 class FixResult(BaseModel):
@@ -81,3 +92,8 @@ class FixResult(BaseModel):
     final_execution_id: str | None = None
 
     final_error: dict[str, Any] | None = None
+
+    telemetry: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="M7/M8 evaluation telemetry and timing metrics.",
+    )

@@ -21,6 +21,7 @@ async def fix_bug(
         result = await agent.fix(
             execution_id=request.execution_id,
             max_attempts=request.max_attempts,
+            mode=request.mode or "dynamic",
         )
         return result
     except HTTPException:
