@@ -28,6 +28,8 @@ export const OutputPanel = ({
   onApplyFix,
   originalCode,
   language,
+  contextStrategy = 'dynamic',
+  onStrategyChange,
 }) => {
   if (isLoading) {
     return (
@@ -148,53 +150,102 @@ export const OutputPanel = ({
         {/* Action Prompt Banner when Execution Fails */}
         {isError && (
           <div className="error-action-banner">
-            <div className="error-banner-left">
-              <AlertOctagon size={18} className="banner-alert-icon" />
-              <div className="banner-text">
-                <span className="banner-title">Runtime Error Detected</span>
-                <span className="banner-sub">AI Debugger & Automatic Fixer available</span>
+            <div className="error-banner-top">
+              <div className="error-banner-left">
+                <AlertOctagon size={18} className="banner-alert-icon" />
+                <div className="banner-text">
+                  <span className="banner-title">Runtime Error Detected</span>
+                  <span className="banner-sub">AI Debugger & Automatic Fixer available</span>
+                </div>
+              </div>
+
+              <div className="error-banner-actions">
+                <button
+                  type="button"
+                  className="action-btn diagnose-btn"
+                  onClick={onDiagnose}
+                  disabled={isDiagnosing || isFixing}
+                >
+                  {isDiagnosing ? (
+                    <>
+                      <Loader2 size={14} className="spinner-icon" />
+                      <span>Diagnosing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Stethoscope size={14} />
+                      <span>Diagnose</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  className="action-btn fix-ai-btn"
+                  onClick={onFixWithAI}
+                  disabled={isDiagnosing || isFixing}
+                >
+                  {isFixing ? (
+                    <>
+                      <Loader2 size={14} className="spinner-icon" />
+                      <span>Fixing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 size={14} />
+                      <span>Fix with AI</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 
-            <div className="error-banner-actions">
-              <button
-                type="button"
-                className="action-btn diagnose-btn"
-                onClick={onDiagnose}
-                disabled={isDiagnosing || isFixing}
-              >
-                {isDiagnosing ? (
-                  <>
-                    <Loader2 size={14} className="spinner-icon" />
-                    <span>Diagnosing...</span>
-                  </>
-                ) : (
-                  <>
-                    <Stethoscope size={14} />
-                    <span>Diagnose</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                className="action-btn fix-ai-btn"
-                onClick={onFixWithAI}
-                disabled={isDiagnosing || isFixing}
-              >
-                {isFixing ? (
-                  <>
-                    <Loader2 size={14} className="spinner-icon" />
-                    <span>Fixing...</span>
-                  </>
-                ) : (
-                  <>
-                    <Wand2 size={14} />
-                    <span>Fix with AI</span>
-                  </>
-                )}
-              </button>
+            {/* M8: Context Strategy Selector */}
+            <div className="strategy-selector-container">
+              <span className="strategy-label">Context Strategy:</span>
+              <div className="strategy-options">
+                <label className={`strategy-radio-label ${contextStrategy === 'baseline' ? 'active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="contextStrategy"
+                    value="baseline"
+                    checked={contextStrategy === 'baseline'}
+                    onChange={() => onStrategyChange && onStrategyChange('baseline')}
+                    disabled={isDiagnosing || isFixing}
+                  />
+                  <span>Baseline — Full Context</span>
+                </label>
+                <label className={`strategy-radio-label ${contextStrategy === 'dynamic' ? 'active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="contextStrategy"
+                    value="dynamic"
+                    checked={contextStrategy === 'dynamic'}
+                    onChange={() => onStrategyChange && onStrategyChange('dynamic')}
+                    disabled={isDiagnosing || isFixing}
+                  />
+                  <span>Dynamic — Curated Context</span>
+                </label>
+              </div>
             </div>
+          </div>
+        )}
+
+        {/* M8 Telemetry Metrics Strip */}
+        {(diagnosis?.telemetry || fixResult?.telemetry) && (
+          <div className="telemetry-summary-strip">
+            <span className={`telemetry-badge mode ${(diagnosis?.telemetry || fixResult?.telemetry).mode}`}>
+              Mode: {(diagnosis?.telemetry || fixResult?.telemetry).mode === 'baseline' ? 'Baseline (Full Context)' : 'Dynamic (Curated Context)'}
+            </span>
+            <span className="telemetry-badge">
+              Context: {((diagnosis?.telemetry || fixResult?.telemetry).context_size || 0).toLocaleString()} chars
+            </span>
+            <span className="telemetry-badge">
+              MCP Calls: {(diagnosis?.telemetry || fixResult?.telemetry).mcp_calls || 0}
+            </span>
+            <span className="telemetry-badge">
+              Total Tokens: {((diagnosis?.telemetry || fixResult?.telemetry).total_tokens || 0).toLocaleString()}
+            </span>
           </div>
         )}
 

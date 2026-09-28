@@ -1,0 +1,110 @@
+"""
+Evaluation models for Milestone 8: Baseline Comparison and Evaluation.
+"""
+
+from enum import Enum
+from typing import Any, Optional
+from pydantic import BaseModel, Field
+
+
+class EvaluationMode(str, Enum):
+    BASELINE = "baseline"
+    DYNAMIC = "dynamic"
+
+
+class ExperimentRecord(BaseModel):
+    """
+    Structured record representing a single evaluation run (one row in m8_experiments.csv).
+    """
+
+    experiment_id: str = Field(description="Unique experiment identifier")
+    bug_id: str = Field(description="Bug benchmark ID, e.g. B001")
+    mode: str = Field(description="Evaluation mode: 'baseline' or 'dynamic'")
+    language: str = Field(description="Programming language, e.g. python")
+    model: str = Field(description="LLM model name used")
+
+    # LLM & Token Measurements
+    llm_calls: int = Field(default=0, description="Total LLM calls made across all components")
+    input_tokens: int = Field(default=0, description="Total prompt/input tokens")
+    output_tokens: int = Field(default=0, description="Total completion/output tokens")
+    total_tokens: int = Field(default=0, description="Total tokens consumed (input + output)")
+
+    curator_input_tokens: int = Field(default=0, description="Input tokens used by M7 context curator (0 for baseline)")
+    curator_output_tokens: int = Field(default=0, description="Output tokens used by M7 context curator (0 for baseline)")
+    curator_total_tokens: int = Field(default=0, description="Total tokens used by M7 context curator (0 for baseline)")
+
+    debugger_input_tokens: int = Field(default=0, description="Input tokens used by debugging agent")
+    debugger_output_tokens: int = Field(default=0, description="Output tokens used by debugging agent")
+    debugger_total_tokens: int = Field(default=0, description="Total tokens used by debugging agent")
+
+    # Context & MCP Measurements
+    mcp_calls: int = Field(default=0, description="Total MCP tool invocations (0 for baseline)")
+    context_size: int = Field(default=0, description="Context size in characters provided to debugging agent")
+    context_reduction_percent: float = Field(
+        default=0.0,
+        description="Percentage reduction in context size compared to baseline"
+    )
+
+    # Timing Metrics (milliseconds)
+    llm_time_ms: float = Field(default=0.0, description="Total LLM query time in milliseconds")
+    mcp_query_time_ms: float = Field(default=0.0, description="MCP server tool execution time in milliseconds")
+    mcp_transport_time_ms: float = Field(default=0.0, description="Client-side MCP invocation/transport time in milliseconds")
+    mcp_time_ms: float = Field(default=0.0, description="Total MCP time (query + transport) in milliseconds")
+    total_curation_time_ms: float = Field(default=0.0, description="Total context curation time in milliseconds (0 for baseline)")
+    total_debugging_time_ms: float = Field(default=0.0, description="Total diagnosis and fix time in milliseconds")
+    total_time_ms: float = Field(default=0.0, description="Total end-to-end experiment time in milliseconds")
+
+    # Effectiveness Metrics
+    root_cause_identified: bool = Field(default=False, description="Whether root cause was correctly identified")
+    fix_generated: bool = Field(default=False, description="Whether a candidate fix was generated")
+    fix_correct: bool = Field(default=False, description="Whether the fix solved the bug and passed re-execution")
+    re_execution_passed: bool = Field(default=False, description="Whether re-execution succeeded with exit code 0")
+
+    # Status & Metadata
+    stop_reason: str = Field(default="completed", description="Reason experiment stopped")
+    timestamp: str = Field(default="", description="ISO 8601 timestamp of experiment")
+
+
+class BenchmarkCase(BaseModel):
+    """
+    Fixed benchmark task specification.
+    """
+
+    bug_id: str
+    category: str
+    title: str
+    language: str
+    code: str
+    stdin: str = ""
+    expected_error: str
+    description: str
+
+
+class BenchmarkRunRequest(BaseModel):
+    bug_id: Optional[str] = None
+    language: Optional[str] = "python"
+    code: Optional[str] = None
+    stdin: Optional[str] = ""
+    mode: str = "dynamic"
+
+
+class PairedBenchmarkRunRequest(BaseModel):
+    bug_id: Optional[str] = None
+    language: Optional[str] = "python"
+    code: Optional[str] = None
+    stdin: Optional[str] = ""
+
+
+class ComparisonResult(BaseModel):
+    """
+    Side-by-side comparison of Baseline vs Dynamic evaluation for the same task.
+    """
+
+    bug_id: str
+    language: str
+    model: str
+    baseline: ExperimentRecord
+    dynamic: ExperimentRecord
+    context_reduction_percent: float
+    token_reduction_percent: float
+    time_difference_ms: float

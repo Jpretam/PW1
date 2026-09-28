@@ -8,6 +8,7 @@ from app.routes.execution import router as execution_router
 from app.routes.traces import router as traces_router
 from app.routes.debug import router as debug_router
 from app.routes.fix import router as fix_router
+from app.evaluation.routes import router as evaluation_router
 from app.mcp.server import mcp
 
 load_dotenv()
@@ -50,6 +51,7 @@ app.include_router(execution_router)
 app.include_router(traces_router)
 app.include_router(debug_router)
 app.include_router(fix_router)
+app.include_router(evaluation_router)
 
 
 @app.get("/health", tags=["health"])

@@ -26,6 +26,7 @@ async def diagnose(
         result = await agent.diagnose(
             execution_id=request.execution_id,
             initial_context=request.initial_context,
+            mode=request.mode or "dynamic",
         )
 
         return result

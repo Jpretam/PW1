@@ -7,6 +7,7 @@ import { CodeEditor } from './components/CodeEditor';
 import { InputPanel } from './components/InputPanel';
 import { OutputPanel } from './components/OutputPanel';
 import { FixHistorySection } from './components/FixHistorySection';
+import { EvaluationSection } from './components/EvaluationSection';
 import { executeCode } from './services/api';
 import { diagnoseExecution, fixExecution } from './services/fixService';
 
@@ -48,6 +49,9 @@ export default function App() {
   const [fixError, setFixError] = useState(null);
   const [fixHistory, setFixHistory] = useState([]);
 
+  // Milestone 8: Evaluation Context Strategy ('baseline' vs 'dynamic')
+  const [contextStrategy, setContextStrategy] = useState('dynamic');
+
   const handleLanguageChange = (newLanguage) => {
     setLanguage(newLanguage);
     setCode(STARTER_CODE[newLanguage] || '');
@@ -73,6 +77,18 @@ export default function App() {
   const handleResetCode = () => {
     setUploadedFileName(null);
     setCode(STARTER_CODE[language] || '');
+    setResult(null);
+    setDiagnosis(null);
+    setFixResult(null);
+    setFixError(null);
+  };
+
+  const handleLoadBenchmarkCode = (benchmarkCode, benchmarkLanguage) => {
+    setCode(benchmarkCode);
+    if (benchmarkLanguage) {
+      setLanguage(benchmarkLanguage);
+    }
+    setUploadedFileName(null);
     setResult(null);
     setDiagnosis(null);
     setFixResult(null);
@@ -112,7 +128,7 @@ export default function App() {
     setFixError(null);
 
     try {
-      const diagData = await diagnoseExecution(result.execution_id);
+      const diagData = await diagnoseExecution(result.execution_id, contextStrategy);
       setDiagnosis(diagData);
     } catch (err) {
       setFixError(err.message || 'Unable to generate diagnosis. Please try again.');
@@ -144,7 +160,7 @@ export default function App() {
     }, 2600);
 
     try {
-      const res = await fixExecution(result.execution_id, 3);
+      const res = await fixExecution(result.execution_id, 3, contextStrategy);
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
 
@@ -252,6 +268,8 @@ export default function App() {
                 onApplyFix={handleApplyFix}
                 originalCode={code}
                 language={language}
+                contextStrategy={contextStrategy}
+                onStrategyChange={setContextStrategy}
               />
             </div>
             {fixHistory.length > 0 && (
@@ -265,6 +283,9 @@ export default function App() {
             )}
           </div>
         </div>
+
+        {/* Milestone 8: Baseline Comparison & Evaluation Suite */}
+        <EvaluationSection onLoadBenchmarkCode={handleLoadBenchmarkCode} />
       </main>
     </div>
   );

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.agent.llm import get_llm
 from app.agent.mcp_client import get_debugging_tools
+from app.agent.token_tracker import TokenUsageCallback
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -194,9 +195,15 @@ class ContextCurator:
             
         return result
 
-    async def curate(self, execution_id: str, initial_context: str | None = None) -> CurationResult:
+    async def curate(
+        self,
+        execution_id: str,
+        initial_context: str | None = None,
+        token_tracker: TokenUsageCallback | None = None,
+    ) -> CurationResult:
         start_time = time.time()
         stop_reason = "budget_limit_reached"
+        tracker = token_tracker if token_tracker is not None else TokenUsageCallback()
         
         state = {
             "execution_id": execution_id,
@@ -220,6 +227,9 @@ class ContextCurator:
             "llm_successes": 0,
             "llm_failures": 0,
             "llm_time": 0.0,
+            "curator_input_tokens": 0,
+            "curator_output_tokens": 0,
+            "curator_total_tokens": 0,
             "mcp_query_time": 0.0,
             "mcp_transport_time": 0.0,
             "mcp_total_time": 0.0
@@ -247,11 +257,15 @@ class ContextCurator:
                     telemetry["mcp_transport_time"] = time.time() - transport_start
                     telemetry["mcp_total_time"] += telemetry["mcp_transport_time"]
                     
-                    await self._curate_loop(execution_id, state, telemetry, session)
+                    await self._curate_loop(execution_id, state, telemetry, session, tracker)
         except Exception as e:
             stop_reason = f"mcp_transport_error: {str(e)}"
             telemetry["stop_reason"] = stop_reason
             
+        telemetry["curator_input_tokens"] = tracker.input_tokens
+        telemetry["curator_output_tokens"] = tracker.output_tokens
+        telemetry["curator_total_tokens"] = tracker.total_tokens
+
         telemetry["investigation_directions"] = list(telemetry["investigation_directions"])
         telemetry["time_spent"] = time.time() - start_time
         telemetry["stop_reason"] = stop_reason if "stop_reason" not in telemetry else telemetry["stop_reason"]
@@ -275,6 +289,9 @@ class ContextCurator:
             "llm_successes": telemetry["llm_successes"],
             "llm_failures": telemetry["llm_failures"],
             "llm_time": telemetry["llm_time"],
+            "curator_input_tokens": telemetry["curator_input_tokens"],
+            "curator_output_tokens": telemetry["curator_output_tokens"],
+            "curator_total_tokens": telemetry["curator_total_tokens"],
             "mcp_query_time": telemetry["mcp_query_time"],
             "mcp_transport_time": telemetry["mcp_transport_time"],
             "mcp_total_time": telemetry["mcp_total_time"],
@@ -283,7 +300,14 @@ class ContextCurator:
         
         return CurationResult(context=final_context, telemetry=telemetry)
 
-    async def _curate_loop(self, execution_id: str, state: dict, telemetry: dict, session: ClientSession):
+    async def _curate_loop(
+        self,
+        execution_id: str,
+        state: dict,
+        telemetry: dict,
+        session: ClientSession,
+        tracker: TokenUsageCallback | None = None,
+    ):
         # PHASE 1: Deterministic initial retrieval (0 LLM calls)
         if state["remaining_budget"] > 0:
             error_context = await self._run_mcp_tool("get_error_context", {"execution_id": execution_id}, state, telemetry, session)
@@ -351,10 +375,13 @@ CRITICAL STOPPING RULES:
             llm_start = time.time()
             telemetry["llm_calls"] += 1
             try:
+                invoke_kwargs = {}
+                if tracker is not None:
+                    invoke_kwargs["config"] = {"callbacks": [tracker]}
                 decision: RetrievalDecision = await self.decision_model.ainvoke([
                     ("system", system_prompt),
                     ("human", prompt)
-                ])
+                ], **invoke_kwargs)
                 telemetry["llm_successes"] += 1
                 telemetry["llm_time"] += (time.time() - llm_start)
                 
