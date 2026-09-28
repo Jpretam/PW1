@@ -107,7 +107,7 @@ export const CodeEditor = ({
           <span className="editor-mode">{monacoLanguage.toUpperCase()}</span>
         </div>
       </div>
-      <div className="editor-wrapper">
+      <div className="editor-wrapper" style={{ minHeight: '420px', height: '100%' }}>
         {isDragging && (
           <div className="drag-overlay">
             <div className="drag-overlay-content">

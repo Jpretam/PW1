@@ -52,8 +52,7 @@ body {
 .app-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  max-height: 100vh;
+  min-height: 100vh;
 }
 
 /* Header */
@@ -120,12 +119,11 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 16px 24px;
-  gap: 16px;
+  padding: 16px 24px 48px 24px;
+  gap: 20px;
   max-width: 1600px;
   width: 100%;
   margin: 0 auto;
-  overflow: hidden;
 }
 
 /* Toolbar */
@@ -250,11 +248,11 @@ body {
 
 /* Workspace Grid */
 .workspace-grid {
-  flex: 1;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  min-height: 0;
+  align-items: stretch;
+  width: 100%;
 }
 
 .grid-cell {
@@ -266,13 +264,15 @@ body {
   background-color: var(--bg-card);
 }
 
+.grid-cell.editor-cell {
+  min-height: 480px;
+}
+
 .right-panel-column {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
+  min-height: 480px;
 }
 
 .input-cell {
@@ -280,8 +280,10 @@ body {
 }
 
 .output-cell {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 340px;
 }
 
 /* Input Panel Styling */
@@ -358,6 +360,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 480px;
   position: relative;
   transition: border-color 0.2s ease;
 }
@@ -494,8 +497,9 @@ body {
 }
 
 .editor-wrapper {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 420px;
+  height: 100%;
   position: relative;
 }
 
@@ -504,6 +508,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 340px;
   background-color: var(--bg-card);
 }
 
@@ -560,10 +565,11 @@ body {
 }
 
 .output-body {
-  flex: 1;
+  flex: 1 1 auto;
   padding: 16px;
   font-family: var(--font-mono);
   font-size: 0.875rem;
+  max-height: 520px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -572,7 +578,8 @@ body {
 }
 
 .output-placeholder {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 240px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1744,11 +1751,15 @@ body {
 }
 
 .history-table-wrapper {
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .history-table {
   width: 100%;
+  min-width: 820px;
   border-collapse: collapse;
   font-size: 0.8rem;
 }
@@ -1785,5 +1796,70 @@ body {
   background: rgba(16, 185, 129, 0.15);
   color: #34d399;
 }
+
+/* Comparison Table Width */
+.comparison-table-wrapper {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.comparison-table {
+  width: 100%;
+  min-width: 680px;
+}
+
+/* Responsive Media Queries */
+@media (max-width: 1024px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .grid-cell.editor-cell,
+  .editor-container {
+    min-height: 420px;
+  }
+
+  .editor-wrapper {
+    min-height: 360px;
+  }
+
+  .right-panel-column {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .main-content {
+    padding: 12px 16px 36px 16px;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .toolbar-left {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .run-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .grid-cell.editor-cell,
+  .editor-container {
+    min-height: 360px;
+  }
+
+  .editor-wrapper {
+    min-height: 300px;
+  }
+}
+
 
 
