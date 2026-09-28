@@ -1,4 +1,4 @@
-# PW1 (Module 1)
+# PW1 
 
 **Research Project**: Dynamic Context Curation for Agentic Software Engineering using Runtime Execution Tracing and Model Context Protocol (MCP)
 
