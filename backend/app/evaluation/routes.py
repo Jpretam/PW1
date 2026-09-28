@@ -3,6 +3,7 @@ FastAPI router for Milestone 8 evaluation endpoints.
 """
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from app.evaluation.benchmarks import get_all_benchmarks, get_benchmark
 from app.evaluation.logger import logger
@@ -127,3 +128,40 @@ async def run_paired_evaluation(request: PairedBenchmarkRunRequest) -> Compariso
 async def get_recent_experiments(limit: int = Query(default=50, ge=1, le=500)) -> list[ExperimentRecord]:
     """Retrieve logged experiment records from m8_experiments.csv."""
     return logger.get_experiments(limit=limit)
+
+
+@router.get(
+    "/experiments/{evaluation_id}/summary",
+)
+async def get_experiment_summary(evaluation_id: str) -> dict:
+    """Retrieve human-readable summary artifact for a specific evaluation_id."""
+    summary = logger.get_evaluation_summary(evaluation_id)
+    if not summary:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No evaluation summary found for '{evaluation_id}'",
+        )
+    return summary
+
+
+@router.get(
+    "/experiments/{evaluation_id}/events",
+)
+async def get_experiment_events(evaluation_id: str) -> list[dict]:
+    """Retrieve structured lifecycle events for a specific evaluation_id."""
+    return logger.get_evaluation_events(evaluation_id)
+
+
+@router.get(
+    "/export/csv",
+)
+async def export_csv_dataset():
+    """Download the master m8_experiments.csv dataset."""
+    csv_file = logger.export_csv_path()
+    if not csv_file.exists():
+        raise HTTPException(status_code=404, detail="No experiment dataset available to export.")
+    return FileResponse(
+        path=str(csv_file),
+        media_type="text/csv",
+        filename="m8_experiments.csv",
+    )

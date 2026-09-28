@@ -536,3 +536,134 @@ def test_api_evaluation_routes():
     resp_exp = client.get("/evaluation/experiments?limit=10")
     assert resp_exp.status_code == 200
     assert isinstance(resp_exp.json(), list)
+
+    resp_csv = client.get("/evaluation/export/csv")
+    assert resp_csv.status_code == 200
+    assert "text/csv" in resp_csv.headers.get("content-type", "")
+
+
+def test_artifact_folder_and_summary_creation(tmp_path):
+    """Verify clean M8 artifact package: events.jsonl, baseline.json, dynamic.json, summary.json."""
+    logger = ExperimentLogger(data_dir=tmp_path)
+    eval_id = "eval_test_pkg_001"
+
+    # 1. Log structured lifecycle events
+    logger.log_event(
+        evaluation_id=eval_id,
+        experiment_id=f"{eval_id}_baseline",
+        bug_id="B001",
+        mode="baseline",
+        event="experiment_started",
+        step=1,
+        data={"code_chars": 100},
+    )
+    logger.log_event(
+        evaluation_id=eval_id,
+        experiment_id=f"{eval_id}_baseline",
+        bug_id="B001",
+        mode="baseline",
+        event="execution_completed",
+        step=2,
+        data={"exit_code": 1, "status": "runtime_error"},
+    )
+
+    # Verify per-evaluation events file
+    eval_dir = tmp_path / "experiments" / eval_id
+    assert eval_dir.exists()
+    events_file = eval_dir / "events.jsonl"
+    assert events_file.exists()
+
+    events = logger.get_evaluation_events(eval_id)
+    assert len(events) == 2
+    assert events[0]["event"] == "experiment_started"
+    assert events[0]["step"] == 1
+    assert events[1]["event"] == "execution_completed"
+    assert events[1]["data"]["exit_code"] == 1
+
+    # 2. Log baseline record
+    base_record = ExperimentRecord(
+        evaluation_id=eval_id,
+        experiment_id=f"{eval_id}_baseline",
+        bug_id="B001",
+        mode="baseline",
+        language="python",
+        model="openrouter/free",
+        context_chars=10000,
+        total_tokens=500,
+        token_usage_available=True,
+        total_experiment_time_ms=1200.0,
+    )
+    logger.log_experiment(base_record)
+    assert (eval_dir / "baseline.json").exists()
+
+    # 3. Log dynamic record
+    dyn_record = ExperimentRecord(
+        evaluation_id=eval_id,
+        experiment_id=f"{eval_id}_dynamic",
+        bug_id="B001",
+        mode="dynamic",
+        language="python",
+        model="openrouter/free",
+        context_chars=1200,
+        total_tokens=300,
+        token_usage_available=True,
+        total_experiment_time_ms=800.0,
+    )
+    logger.log_experiment(dyn_record)
+    assert (eval_dir / "dynamic.json").exists()
+
+    # 4. Log paired summary
+    from app.evaluation.models import ComparisonResult
+    comp = ComparisonResult(
+        evaluation_id=eval_id,
+        bug_id="B001",
+        language="python",
+        model="openrouter/free",
+        baseline=base_record,
+        dynamic=dyn_record,
+        context_reduction_percent=88.0,
+        token_reduction_percent=40.0,
+        time_difference_ms=-400.0,
+        status="completed",
+    )
+    summary = logger.log_paired_summary(comp)
+    assert (eval_dir / "summary.json").exists()
+    assert summary["evaluation_id"] == eval_id
+    assert summary["metrics"]["context_reduction_percent"] == 88.0
+    assert summary["metrics"]["token_reduction_percent"] == 40.0
+
+
+def test_research_traceability_from_csv(tmp_path):
+    """Verify that a researcher can take any row from m8_experiments.csv and trace it to artifacts."""
+    logger = ExperimentLogger(data_dir=tmp_path)
+    eval_id = "eval_trace_999"
+
+    record = ExperimentRecord(
+        evaluation_id=eval_id,
+        experiment_id=f"{eval_id}_dynamic",
+        bug_id="B001",
+        mode="dynamic",
+        language="python",
+        model="openrouter/free",
+        context_chars=1500,
+        total_tokens=420,
+        token_usage_available=True,
+        total_experiment_time_ms=950.0,
+    )
+    logger.log_experiment(record)
+
+    # Trace back: read from CSV
+    experiments = logger.get_experiments()
+    assert len(experiments) == 1
+    row = experiments[0]
+
+    # Verify ID points directly to artifact directory
+    target_dir = tmp_path / "experiments" / row.evaluation_id
+    assert target_dir.exists()
+    assert (target_dir / "dynamic.json").exists()
+    assert (target_dir / "summary.json").exists()
+
+    summary_obj = logger.get_evaluation_summary(row.evaluation_id)
+    assert summary_obj is not None
+    assert summary_obj["evaluation_id"] == row.evaluation_id
+
