@@ -177,19 +177,19 @@ Full Source Code and Runtime Execution Trace:
                     "curation_time": 0.0,
                     "llm_calls": debugger_tracker.calls or 1,
                     "llm_time": debugger_llm_time,
-                    "baseline_input_tokens": None,
-                    "baseline_output_tokens": None,
-                    "baseline_total_tokens": None,
+                    "baseline_input_tokens": debugger_tracker.safe_input_tokens,
+                    "baseline_output_tokens": debugger_tracker.safe_output_tokens,
+                    "baseline_total_tokens": debugger_tracker.safe_total_tokens,
                     "curator_input_tokens": 0,
                     "curator_output_tokens": 0,
                     "curator_total_tokens": 0,
-                    "debugger_input_tokens": None,
-                    "debugger_output_tokens": None,
-                    "debugger_total_tokens": None,
-                    "input_tokens": None,
-                    "output_tokens": None,
-                    "total_tokens": None,
-                    "token_usage_available": False,
+                    "debugger_input_tokens": debugger_tracker.safe_input_tokens,
+                    "debugger_output_tokens": debugger_tracker.safe_output_tokens,
+                    "debugger_total_tokens": debugger_tracker.safe_total_tokens,
+                    "input_tokens": debugger_tracker.safe_input_tokens,
+                    "output_tokens": debugger_tracker.safe_output_tokens,
+                    "total_tokens": debugger_tracker.safe_total_tokens,
+                    "token_usage_available": debugger_tracker.usage_available,
                     "stop_reason": f"error: {str(exc)}",
                 }
             )
@@ -299,6 +299,23 @@ Curated Runtime Context:
             cur_in = curator_telemetry.get("curator_input_tokens")
             cur_out = curator_telemetry.get("curator_output_tokens")
             cur_tot = curator_telemetry.get("curator_total_tokens")
+            cur_available = curator_telemetry.get("token_usage_available", False)
+
+            deb_available = debugger_tracker.usage_available
+            deb_in = debugger_tracker.safe_input_tokens
+            deb_out = debugger_tracker.safe_output_tokens
+            deb_tot = debugger_tracker.safe_total_tokens
+
+            overall_tokens_available = cur_available and deb_available
+            if overall_tokens_available:
+                dynamic_tot = (cur_tot or 0) + (deb_tot or 0)
+                tot_in = (cur_in or 0) + (deb_in or 0)
+                tot_out = (cur_out or 0) + (deb_out or 0)
+            else:
+                dynamic_tot = None
+                tot_in = None
+                tot_out = None
+
             context_chars = len(curated_context)
 
             return DebugDiagnosis(
@@ -326,14 +343,14 @@ Curated Runtime Context:
                     "dynamic_curator_input_tokens": cur_in,
                     "dynamic_curator_output_tokens": cur_out,
                     "dynamic_curator_total_tokens": cur_tot,
-                    "dynamic_debugger_input_tokens": None,
-                    "dynamic_debugger_output_tokens": None,
-                    "dynamic_debugger_total_tokens": None,
-                    "dynamic_total_tokens": None,
-                    "input_tokens": None,
-                    "output_tokens": None,
-                    "total_tokens": None,
-                    "token_usage_available": False,
+                    "dynamic_debugger_input_tokens": deb_in,
+                    "dynamic_debugger_output_tokens": deb_out,
+                    "dynamic_debugger_total_tokens": deb_tot,
+                    "dynamic_total_tokens": dynamic_tot,
+                    "input_tokens": tot_in,
+                    "output_tokens": tot_out,
+                    "total_tokens": dynamic_tot,
+                    "token_usage_available": overall_tokens_available,
                     "llm_calls": curator_telemetry.get("llm_calls", 0) + (debugger_tracker.calls or 1),
                     "llm_time": curator_telemetry.get("llm_time", 0.0) + debugger_llm_time,
                     "stop_reason": curator_telemetry.get("stop_reason", f"error: {str(exc)}"),

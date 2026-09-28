@@ -26,6 +26,8 @@ def get_llm():
 
     return ChatOpenRouter(
         model=model_name,
+        api_key=api_key,
         temperature=0.2,
         max_tokens=2048,
+        stream_usage=True,
     )

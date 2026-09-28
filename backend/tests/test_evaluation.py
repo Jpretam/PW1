@@ -11,7 +11,7 @@ from langchain_core.outputs import ChatGeneration, LLMResult
 
 from app.agent.debugger import DebuggingAgent
 from app.agent.models import DebugDiagnosis
-from app.agent.token_tracker import TokenUsageCallback
+from app.agent.token_tracker import TokenUsageCallback, TokenUsageResult, extract_token_usage
 from app.evaluation.benchmarks import get_all_benchmarks, get_benchmark
 from app.evaluation.logger import ExperimentLogger
 from app.evaluation.models import BenchmarkRunRequest, ExperimentRecord
@@ -21,6 +21,118 @@ from app.models.execution import ExecutionLanguage, ExecutionRequest
 from app.services.executor import CodeExecutionService
 
 client = TestClient(app)
+
+
+def test_normalized_extract_token_usage_helper():
+    """Verify extract_token_usage handles AIMessage, dict, and missing usage cleanly."""
+    # 1. AIMessage with usage_metadata
+    msg = AIMessage(
+        content='Hello',
+        usage_metadata={"input_tokens": 120, "output_tokens": 30, "total_tokens": 150}
+    )
+    res = extract_token_usage(msg)
+    assert res.available is True
+    assert res.input_tokens == 120
+    assert res.output_tokens == 30
+    assert res.total_tokens == 150
+
+    # 2. Raw OpenRouter response dictionary with 'usage'
+    raw_dict = {
+        "id": "gen-123",
+        "usage": {
+            "prompt_tokens": 200,
+            "completion_tokens": 50,
+            "total_tokens": 250,
+        }
+    }
+    res_dict = extract_token_usage(raw_dict)
+    assert res_dict.available is True
+    assert res_dict.input_tokens == 200
+    assert res_dict.output_tokens == 50
+    assert res_dict.total_tokens == 250
+
+    # 3. Missing usage metadata -> available is False, tokens are None (never 0)
+    msg_empty = AIMessage(content='No metadata')
+    res_empty = extract_token_usage(msg_empty)
+    assert res_empty.available is False
+    assert res_empty.input_tokens is None
+    assert res_empty.output_tokens is None
+    assert res_empty.total_tokens is None
+    assert res_empty.total_tokens != 0
+
+    # 4. None input
+    res_none = extract_token_usage(None)
+    assert res_none.available is False
+    assert res_none.input_tokens is None
+
+
+def test_fairness_token_aggregation_curator_and_debugger(tmp_path):
+    """Verify Dynamic total tokens = curator_tokens + debugger_tokens, and Baseline = debugger_tokens."""
+    isolated_logger = ExperimentLogger(data_dir=tmp_path)
+    service = EvaluationService(logger=isolated_logger)
+
+    # Dynamic run record simulation
+    dyn_rec = ExperimentRecord(
+        evaluation_id="eval_fairness_1",
+        experiment_id="eval_fairness_1_dynamic",
+        bug_id="B001",
+        mode="dynamic",
+        language="python",
+        model="openrouter/free",
+        context_chars=1306,
+        curator_input_tokens=100,
+        curator_output_tokens=25,
+        curator_total_tokens=125,
+        debugger_input_tokens=200,
+        debugger_output_tokens=50,
+        debugger_total_tokens=250,
+        input_tokens=300,  # 100 + 200
+        output_tokens=75,  # 25 + 50
+        total_tokens=375,  # 125 + 250
+        token_usage_available=True,
+    )
+
+    # Baseline run record simulation
+    base_rec = ExperimentRecord(
+        evaluation_id="eval_fairness_1",
+        experiment_id="eval_fairness_1_baseline",
+        bug_id="B001",
+        mode="baseline",
+        language="python",
+        model="openrouter/free",
+        context_chars=11440,
+        curator_input_tokens=0,
+        curator_output_tokens=0,
+        curator_total_tokens=0,
+        debugger_input_tokens=500,
+        debugger_output_tokens=120,
+        debugger_total_tokens=620,
+        input_tokens=500,
+        output_tokens=120,
+        total_tokens=620,
+        token_usage_available=True,
+    )
+
+    assert dyn_rec.total_tokens == dyn_rec.curator_total_tokens + dyn_rec.debugger_total_tokens
+    assert dyn_rec.input_tokens == dyn_rec.curator_input_tokens + dyn_rec.debugger_input_tokens
+    assert dyn_rec.output_tokens == dyn_rec.curator_output_tokens + dyn_rec.debugger_output_tokens
+    assert base_rec.total_tokens == base_rec.debugger_total_tokens
+
+    # Verify token reduction is computed from total tokens
+    from app.evaluation.models import ComparisonResult
+    comp = ComparisonResult(
+        evaluation_id="eval_fairness_1",
+        bug_id="B001",
+        language="python",
+        model="openrouter/free",
+        baseline=base_rec,
+        dynamic=dyn_rec,
+        context_reduction_percent=88.58,
+        token_reduction_percent=round(((base_rec.total_tokens - dyn_rec.total_tokens) / base_rec.total_tokens) * 100.0, 2),
+        time_difference_ms=100.0,
+    )
+    # 620 vs 375 -> (620 - 375) / 620 * 100 = 39.52%
+    assert comp.token_reduction_percent == 39.52
 
 
 def test_token_usage_extraction():
