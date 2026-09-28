@@ -9,16 +9,25 @@ import {
   Cpu,
   CheckCircle2,
   XCircle,
-  HelpCircle,
   TrendingDown,
   RefreshCw,
   ChevronRight,
-  ExternalLink,
+  Download,
+  FileText,
+  Eye,
+  X,
+  Copy,
+  Check,
+  Terminal,
+  Activity,
 } from 'lucide-react';
 import {
   getBenchmarks,
   runPairedEvaluation,
   getRecentExperiments,
+  getExportCsvUrl,
+  getExperimentSummary,
+  getExperimentEvents,
 } from '../services/evaluationService';
 
 export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
@@ -29,6 +38,14 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
   const [evalError, setEvalError] = useState(null);
   const [recentExperiments, setRecentExperiments] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  // Inspection states
+  const [selectedEvaluationId, setSelectedEvaluationId] = useState(null);
+  const [inspectionSummary, setInspectionSummary] = useState(null);
+  const [inspectionEvents, setInspectionEvents] = useState([]);
+  const [isLoadingInspection, setIsLoadingInspection] = useState(false);
+  const [activeInspectTab, setActiveInspectTab] = useState('summary');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetchBenchmarks();
@@ -50,7 +67,7 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
   const fetchHistory = async () => {
     setIsLoadingHistory(true);
     try {
-      const data = await getRecentExperiments(15);
+      const data = await getRecentExperiments(30);
       setRecentExperiments(data);
     } catch (err) {
       console.error('Failed to load experiments history:', err);
@@ -66,6 +83,10 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
       const res = await runPairedEvaluation({ bugId: selectedBugId });
       setComparisonResult(res);
       fetchHistory();
+      // Automatically load the inspection for the newly completed evaluation
+      if (res && res.evaluation_id) {
+        handleInspectEvaluation(res.evaluation_id);
+      }
     } catch (err) {
       setEvalError(err.response?.data?.detail || err.message || 'Evaluation failed to complete.');
     } finally {
@@ -73,10 +94,36 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
     }
   };
 
+  const handleInspectEvaluation = async (evalId) => {
+    if (!evalId || evalId === '-') return;
+    setSelectedEvaluationId(evalId);
+    setIsLoadingInspection(true);
+    try {
+      const [sumRes, evRes] = await Promise.allSettled([
+        getExperimentSummary(evalId),
+        getExperimentEvents(evalId),
+      ]);
+      setInspectionSummary(sumRes.status === 'fulfilled' ? sumRes.value : null);
+      setInspectionEvents(evRes.status === 'fulfilled' ? evRes.value : []);
+    } catch (err) {
+      console.error('Failed to load evaluation inspection:', err);
+    } finally {
+      setIsLoadingInspection(false);
+    }
+  };
+
+  const handleCopyId = (id) => {
+    if (!id) return;
+    navigator.clipboard.writeText(id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const selectedBench = benchmarks.find((b) => b.bug_id === selectedBugId);
 
   return (
     <div className="evaluation-container">
+      {/* 1. Page Header */}
       <div className="evaluation-header">
         <div className="evaluation-header-left">
           <FlaskConical size={20} className="text-accent" />
@@ -87,18 +134,29 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          className="history-refresh-btn"
-          onClick={fetchHistory}
-          title="Refresh experiment records"
-        >
-          <RefreshCw size={14} className={isLoadingHistory ? 'spin-icon' : ''} />
-          <span>Refresh Data</span>
-        </button>
+        <div className="evaluation-header-actions">
+          <a
+            href={getExportCsvUrl()}
+            download="m8_experiments.csv"
+            className="action-btn export-csv-btn"
+            title="Download full experiment dataset (CSV)"
+          >
+            <Download size={14} />
+            <span>Download CSV</span>
+          </a>
+          <button
+            type="button"
+            className="history-refresh-btn"
+            onClick={fetchHistory}
+            title="Refresh experiment records"
+          >
+            <RefreshCw size={14} className={isLoadingHistory ? 'spin-icon' : ''} />
+            <span>Refresh Data</span>
+          </button>
+        </div>
       </div>
 
-      {/* Benchmark Task Selection Toolbar */}
+      {/* 2. Experiment Controls / Benchmark Picker */}
       <div className="eval-toolbar">
         <div className="benchmark-picker">
           <label htmlFor="benchmark-select" className="eval-label">Benchmark Task:</label>
@@ -149,6 +207,18 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
         </button>
       </div>
 
+      {/* Loading state indicator */}
+      {isRunning && (
+        <div className="eval-running-banner">
+          <RefreshCw size={16} className="spin-icon" />
+          <div className="eval-running-text">
+            <strong>Evaluation in progress...</strong>
+            <span>Executing paired experiments (Baseline vs Dynamic via MCP) on benchmark {selectedBugId}. Telemetry is streaming to backend.</span>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Selected Benchmark Information */}
       {selectedBench && (
         <div className="benchmark-card">
           <div className="bench-meta">
@@ -167,7 +237,7 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
         </div>
       )}
 
-      {/* Side-by-Side Comparison View */}
+      {/* 4. Baseline vs Dynamic Side-by-Side Comparison */}
       {comparisonResult && (
         <div className="comparison-card">
           <div className="comparison-card-header">
@@ -175,14 +245,25 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
               <h4>Experimental Comparison — Benchmark {comparisonResult.bug_id}</h4>
               <span className="text-xs text-muted font-mono">Evaluation ID: {comparisonResult.evaluation_id}</span>
             </div>
-            <div className="reduction-pill">
-              <TrendingDown size={14} />
-              <span>
-                Context Reduction:{' '}
-                {comparisonResult.context_reduction_percent !== null
-                  ? `${comparisonResult.context_reduction_percent}%`
-                  : 'N/A'}
-              </span>
+            <div className="comparison-header-actions">
+              <button
+                type="button"
+                className="action-btn inspect-eval-btn"
+                onClick={() => handleInspectEvaluation(comparisonResult.evaluation_id)}
+                title="Inspect detailed artifacts and event logs"
+              >
+                <Eye size={13} />
+                <span>Inspect Artifacts</span>
+              </button>
+              <div className="reduction-pill">
+                <TrendingDown size={14} />
+                <span>
+                  Context Reduction:{' '}
+                  {comparisonResult.context_reduction_percent !== null
+                    ? `${comparisonResult.context_reduction_percent}%`
+                    : 'N/A'}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -201,15 +282,15 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                   <td className="metric-name">Status</td>
                   <td>
                     <span className={`outcome-pill ${comparisonResult.baseline.status === 'completed' ? 'success' : 'failure'}`}>
-                      {comparisonResult.baseline.status === 'completed' ? 'Completed' : 'Invalid'}
+                      {comparisonResult.baseline.status === 'completed' ? 'Completed' : comparisonResult.baseline.status}
                     </span>
                   </td>
                   <td>
                     <span className={`outcome-pill ${comparisonResult.dynamic.status === 'completed' ? 'success' : 'failure'}`}>
-                      {comparisonResult.dynamic.status === 'completed' ? 'Completed' : 'Invalid'}
+                      {comparisonResult.dynamic.status === 'completed' ? 'Completed' : comparisonResult.dynamic.status}
                     </span>
                   </td>
-                  <td>Experiment run validity</td>
+                  <td>Run execution status</td>
                 </tr>
                 <tr>
                   <td className="metric-name">Context Size (chars)</td>
@@ -217,101 +298,101 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                   <td>{(comparisonResult.dynamic.context_chars ?? comparisonResult.dynamic.context_size ?? 0).toLocaleString()} chars</td>
                   <td className="text-reduction">
                     {comparisonResult.context_reduction_percent !== null
-                      ? `-${comparisonResult.context_reduction_percent}% reduction`
+                      ? `${comparisonResult.context_reduction_percent}% fewer context characters`
                       : 'N/A'}
                   </td>
                 </tr>
                 <tr>
-                  <td className="metric-name">Input Tokens</td>
+                  <td className="metric-name">Input Tokens (tokens)</td>
                   <td>
                     {comparisonResult.baseline.token_usage_available && comparisonResult.baseline.input_tokens !== null
-                      ? comparisonResult.baseline.input_tokens.toLocaleString()
-                      : 'N/A'}
+                      ? `${comparisonResult.baseline.input_tokens.toLocaleString()} tokens`
+                      : 'N/A — token usage unavailable'}
                   </td>
                   <td>
                     {comparisonResult.dynamic.token_usage_available && comparisonResult.dynamic.input_tokens !== null
-                      ? comparisonResult.dynamic.input_tokens.toLocaleString()
-                      : 'N/A'}
+                      ? `${comparisonResult.dynamic.input_tokens.toLocaleString()} tokens`
+                      : 'N/A — token usage unavailable'}
                   </td>
                   <td>Prompt token consumption</td>
                 </tr>
                 <tr>
-                  <td className="metric-name">Output Tokens</td>
+                  <td className="metric-name">Output Tokens (tokens)</td>
                   <td>
                     {comparisonResult.baseline.token_usage_available && comparisonResult.baseline.output_tokens !== null
-                      ? comparisonResult.baseline.output_tokens.toLocaleString()
-                      : 'N/A'}
+                      ? `${comparisonResult.baseline.output_tokens.toLocaleString()} tokens`
+                      : 'N/A — token usage unavailable'}
                   </td>
                   <td>
                     {comparisonResult.dynamic.token_usage_available && comparisonResult.dynamic.output_tokens !== null
-                      ? comparisonResult.dynamic.output_tokens.toLocaleString()
-                      : 'N/A'}
+                      ? `${comparisonResult.dynamic.output_tokens.toLocaleString()} tokens`
+                      : 'N/A — token usage unavailable'}
                   </td>
                   <td>Completion token consumption</td>
                 </tr>
                 <tr>
-                  <td className="metric-name">Total Tokens</td>
+                  <td className="metric-name">Total Tokens (tokens)</td>
                   <td>
                     {comparisonResult.baseline.token_usage_available && comparisonResult.baseline.total_tokens !== null
-                      ? comparisonResult.baseline.total_tokens.toLocaleString()
-                      : 'N/A'}
+                      ? `${comparisonResult.baseline.total_tokens.toLocaleString()} tokens`
+                      : 'N/A — token usage unavailable'}
                   </td>
                   <td>
                     {comparisonResult.dynamic.token_usage_available && comparisonResult.dynamic.total_tokens !== null
-                      ? `${comparisonResult.dynamic.total_tokens.toLocaleString()} (Curator: ${comparisonResult.dynamic.curator_total_tokens ?? 0}, Debugger: ${comparisonResult.dynamic.debugger_total_tokens ?? 0})`
-                      : 'N/A'}
+                      ? `${comparisonResult.dynamic.total_tokens.toLocaleString()} tokens (Curator: ${comparisonResult.dynamic.curator_total_tokens ?? 0}, Debugger: ${comparisonResult.dynamic.debugger_total_tokens ?? 0})`
+                      : 'N/A — token usage unavailable'}
                   </td>
                   <td>
                     {comparisonResult.token_reduction_percent !== null
-                      ? `${comparisonResult.token_reduction_percent}% reduction`
+                      ? `${comparisonResult.token_reduction_percent}% fewer total tokens`
                       : 'N/A (provider metadata unavailable)'}
                   </td>
                 </tr>
                 <tr>
                   <td className="metric-name">LLM Calls</td>
-                  <td>{comparisonResult.baseline.llm_calls}</td>
-                  <td>{comparisonResult.dynamic.llm_calls}</td>
+                  <td>{comparisonResult.baseline.llm_calls} call</td>
+                  <td>{comparisonResult.dynamic.llm_calls} calls</td>
                   <td>
                     {comparisonResult.dynamic.llm_calls > comparisonResult.baseline.llm_calls
-                      ? `+${comparisonResult.dynamic.llm_calls - comparisonResult.baseline.llm_calls} (Curator step)`
-                      : 'Identical'}
+                      ? `+${comparisonResult.dynamic.llm_calls - comparisonResult.baseline.llm_calls} call (Curator step)`
+                      : 'Identical count'}
                   </td>
                 </tr>
                 <tr>
                   <td className="metric-name">MCP Tool Calls</td>
-                  <td>0 (Direct Context)</td>
-                  <td>{comparisonResult.dynamic.mcp_calls} (Selective Retrieval)</td>
-                  <td>Dynamic query via MCP</td>
+                  <td>0 calls (Direct Context)</td>
+                  <td>{comparisonResult.dynamic.mcp_calls} calls (Selective Retrieval)</td>
+                  <td>Dynamic query via MCP server</td>
                 </tr>
                 <tr>
-                  <td className="metric-name">LLM Time</td>
+                  <td className="metric-name">LLM Time (ms)</td>
                   <td>{comparisonResult.baseline.llm_time_ms.toFixed(1)} ms</td>
                   <td>{comparisonResult.dynamic.llm_time_ms.toFixed(1)} ms</td>
                   <td>Total model query duration</td>
                 </tr>
                 <tr>
-                  <td className="metric-name">MCP Query Time</td>
+                  <td className="metric-name">MCP Query Time (ms)</td>
                   <td>0.0 ms</td>
                   <td>{comparisonResult.dynamic.mcp_query_time_ms.toFixed(1)} ms</td>
                   <td>Isolated MCP tool execution</td>
                 </tr>
                 <tr>
-                  <td className="metric-name">MCP Transport Time</td>
+                  <td className="metric-name">MCP Transport Time (ms)</td>
                   <td>0.0 ms</td>
                   <td>{comparisonResult.dynamic.mcp_transport_time_ms.toFixed(1)} ms</td>
                   <td>MCP client transport/session overhead</td>
                 </tr>
                 <tr>
-                  <td className="metric-name">MCP Total Time</td>
+                  <td className="metric-name">MCP Total Time (ms)</td>
                   <td>0.0 ms</td>
                   <td>{(comparisonResult.dynamic.mcp_total_time_ms || comparisonResult.dynamic.mcp_time_ms || 0).toFixed(1)} ms</td>
                   <td>Combined MCP overhead (query + transport)</td>
                 </tr>
                 <tr>
-                  <td className="metric-name">Total Experiment Time</td>
+                  <td className="metric-name">Total Experiment Time (ms)</td>
                   <td>{(comparisonResult.baseline.total_experiment_time_ms || comparisonResult.baseline.total_time_ms || 0).toFixed(1)} ms</td>
                   <td>{(comparisonResult.dynamic.total_experiment_time_ms || comparisonResult.dynamic.total_time_ms || 0).toFixed(1)} ms</td>
-                  <td>{comparisonResult.time_difference_ms > 0 ? `+${comparisonResult.time_difference_ms} ms` : `${comparisonResult.time_difference_ms} ms`}</td>
+                  <td>{comparisonResult.time_difference_ms > 0 ? `+${comparisonResult.time_difference_ms.toFixed(1)} ms duration` : `${comparisonResult.time_difference_ms.toFixed(1)} ms duration`}</td>
                 </tr>
                 <tr>
                   <td className="metric-name">Root Cause Identified</td>
@@ -391,19 +472,274 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
         </div>
       )}
 
-      {/* Dataset / Experiment History Section */}
+      {/* 5. Detailed Research Run Inspector (Expandable Modal / Card) */}
+      {selectedEvaluationId && (
+        <div className="evaluation-inspector-card">
+          <div className="inspector-header">
+            <div className="inspector-header-left">
+              <Layers size={18} className="text-accent" />
+              <div>
+                <h4>Research Artifact Inspector</h4>
+                <div className="inspector-id-row">
+                  <span className="font-mono text-xs text-muted">Evaluation ID: {selectedEvaluationId}</span>
+                  <button
+                    type="button"
+                    className="copy-id-btn"
+                    onClick={() => handleCopyId(selectedEvaluationId)}
+                    title="Copy Evaluation ID to clipboard"
+                  >
+                    {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="close-inspector-btn"
+              onClick={() => setSelectedEvaluationId(null)}
+              title="Close Inspector"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          {/* Traceability Location Banner */}
+          <div className="inspector-trace-banner">
+            <div className="trace-path-info">
+              <span className="trace-label">Experiment Artifact Storage:</span>
+              <code className="trace-path">backend/data/m8/experiments/{selectedEvaluationId}/</code>
+            </div>
+            <div className="trace-files-list">
+              <span className="trace-file-tag">events.jsonl</span>
+              <span className="trace-file-tag">summary.json</span>
+              <span className="trace-file-tag">baseline.json</span>
+              <span className="trace-file-tag">dynamic.json</span>
+            </div>
+          </div>
+
+          {/* Inspector Tabs */}
+          <div className="inspector-tabs">
+            <button
+              type="button"
+              className={`inspector-tab ${activeInspectTab === 'summary' ? 'active' : ''}`}
+              onClick={() => setActiveInspectTab('summary')}
+            >
+              <Sparkles size={14} />
+              <span>Paired Summary</span>
+            </button>
+            <button
+              type="button"
+              className={`inspector-tab ${activeInspectTab === 'events' ? 'active' : ''}`}
+              onClick={() => setActiveInspectTab('events')}
+            >
+              <Activity size={14} />
+              <span>Lifecycle Events ({inspectionEvents?.length || 0})</span>
+            </button>
+            <button
+              type="button"
+              className={`inspector-tab ${activeInspectTab === 'raw' ? 'active' : ''}`}
+              onClick={() => setActiveInspectTab('raw')}
+            >
+              <Terminal size={14} />
+              <span>Raw JSON Artifact</span>
+            </button>
+          </div>
+
+          {isLoadingInspection ? (
+            <div className="inspector-loading">
+              <RefreshCw size={20} className="spin-icon text-accent" />
+              <span>Loading evaluation artifacts & telemetry from backend...</span>
+            </div>
+          ) : (
+            <div className="inspector-content">
+              {activeInspectTab === 'summary' && (
+                <div className="inspector-summary-view">
+                  {inspectionSummary ? (
+                    <div className="summary-grid">
+                      <div className="summary-mode-card baseline-card">
+                        <div className="summary-mode-header">
+                          <span className="mode-badge baseline">Baseline Run</span>
+                          <span className="font-mono text-xs text-muted">{inspectionSummary.baseline?.experiment_id}</span>
+                        </div>
+                        <div className="summary-metrics-list">
+                          <div className="metric-row">
+                            <span>Status:</span>
+                            <span className="font-semibold">{inspectionSummary.baseline?.status}</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Context Size:</span>
+                            <span className="font-mono font-bold">{(inspectionSummary.baseline?.context_chars ?? 0).toLocaleString()} chars</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Total Tokens:</span>
+                            <span className="font-mono">
+                              {inspectionSummary.baseline?.token_usage_available && inspectionSummary.baseline?.total_tokens !== null
+                                ? `${inspectionSummary.baseline.total_tokens.toLocaleString()} tokens`
+                                : 'N/A — token usage unavailable'}
+                            </span>
+                          </div>
+                          <div className="metric-row">
+                            <span>LLM Calls / MCP:</span>
+                            <span>{inspectionSummary.baseline?.llm_calls} call(s) / {inspectionSummary.baseline?.mcp_calls} MCP</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>LLM Time:</span>
+                            <span className="font-mono">{(inspectionSummary.baseline?.llm_time_ms ?? 0).toFixed(1)} ms</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Total Experiment Time:</span>
+                            <span className="font-mono">{(inspectionSummary.baseline?.total_experiment_time_ms ?? 0).toFixed(1)} ms</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Root Cause Identified:</span>
+                            <span>{inspectionSummary.baseline?.root_cause_identified ? 'Yes' : 'No'}</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Fix Correct / Passed:</span>
+                            <span>{inspectionSummary.baseline?.fix_correct ? 'Validated' : 'No'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="summary-mode-card dynamic-card">
+                        <div className="summary-mode-header">
+                          <span className="mode-badge dynamic">Dynamic Run</span>
+                          <span className="font-mono text-xs text-muted">{inspectionSummary.dynamic?.experiment_id}</span>
+                        </div>
+                        <div className="summary-metrics-list">
+                          <div className="metric-row">
+                            <span>Status:</span>
+                            <span className="font-semibold">{inspectionSummary.dynamic?.status}</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Context Size:</span>
+                            <span className="font-mono font-bold text-success">{(inspectionSummary.dynamic?.context_chars ?? 0).toLocaleString()} chars</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Total Tokens:</span>
+                            <span className="font-mono">
+                              {inspectionSummary.dynamic?.token_usage_available && inspectionSummary.dynamic?.total_tokens !== null
+                                ? `${inspectionSummary.dynamic.total_tokens.toLocaleString()} tokens (Curator: ${inspectionSummary.dynamic.curator_total_tokens ?? 0}, Debugger: ${inspectionSummary.dynamic.debugger_total_tokens ?? 0})`
+                                : 'N/A — token usage unavailable'}
+                            </span>
+                          </div>
+                          <div className="metric-row">
+                            <span>LLM Calls / MCP:</span>
+                            <span>{inspectionSummary.dynamic?.llm_calls} call(s) / {inspectionSummary.dynamic?.mcp_calls} MCP</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>LLM Time:</span>
+                            <span className="font-mono">{(inspectionSummary.dynamic?.llm_time_ms ?? 0).toFixed(1)} ms</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>MCP Overhead (total):</span>
+                            <span className="font-mono">{(inspectionSummary.dynamic?.mcp_total_time_ms ?? 0).toFixed(1)} ms</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Total Experiment Time:</span>
+                            <span className="font-mono">{(inspectionSummary.dynamic?.total_experiment_time_ms ?? 0).toFixed(1)} ms</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Root Cause Identified:</span>
+                            <span>{inspectionSummary.dynamic?.root_cause_identified ? 'Yes' : 'No'}</span>
+                          </div>
+                          <div className="metric-row">
+                            <span>Fix Correct / Passed:</span>
+                            <span>{inspectionSummary.dynamic?.fix_correct ? 'Validated' : 'No'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="inspector-empty">No paired summary artifact found for this evaluation ID.</div>
+                  )}
+                </div>
+              )}
+
+              {activeInspectTab === 'events' && (
+                <div className="inspector-events-view">
+                  {inspectionEvents && inspectionEvents.length > 0 ? (
+                    <div className="events-timeline">
+                      {inspectionEvents.map((evt, idx) => (
+                        <div key={`${evt.event}-${idx}`} className="event-timeline-node">
+                          <div className="event-timeline-left">
+                            <span className="event-step-pill">Step {evt.step ?? idx + 1}</span>
+                            <span className="event-time-str">
+                              {evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString() : '-'}
+                            </span>
+                          </div>
+                          <div className="event-timeline-right">
+                            <div className="event-title-line">
+                              <span className="event-name-tag">{evt.event}</span>
+                              {evt.mode && (
+                                <span className={`mode-badge ${evt.mode}`}>{evt.mode}</span>
+                              )}
+                            </div>
+                            <div className="event-details-text">
+                              {Object.entries(evt)
+                                .filter(([k]) => !['timestamp', 'evaluation_id', 'experiment_id', 'event', 'step', 'mode'].includes(k))
+                                .map(([k, v]) => (
+                                  <span key={k} className="event-kv-item">
+                                    <span className="kv-key">{k}:</span>{' '}
+                                    <span className="kv-val">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+                                  </span>
+                                ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="inspector-empty">No structured events recorded for this evaluation ID.</div>
+                  )}
+                </div>
+              )}
+
+              {activeInspectTab === 'raw' && (
+                <div className="inspector-raw-view">
+                  <pre className="raw-json-block">
+                    {JSON.stringify(inspectionSummary || inspectionEvents, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 6. Experiment History / Dataset Section */}
       <div className="experiments-history-card">
         <div className="history-card-header">
           <div className="flex-row items-center gap-2">
             <Database size={16} className="text-accent" />
             <h4>Logged Experiment Records (m8_experiments.csv)</h4>
           </div>
-          <span className="text-muted text-xs">Dataset persisted on backend</span>
+          <div className="flex-row items-center gap-2">
+            <a
+              href={getExportCsvUrl()}
+              download="m8_experiments.csv"
+              className="export-csv-btn"
+              title="Download master CSV dataset for external analysis"
+            >
+              <Download size={13} />
+              <span>Download CSV</span>
+            </a>
+            <button
+              type="button"
+              className="history-refresh-btn"
+              onClick={fetchHistory}
+              title="Refresh experiment records"
+            >
+              <RefreshCw size={13} className={isLoadingHistory ? 'spin-icon' : ''} />
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
 
         {recentExperiments.length === 0 ? (
           <div className="empty-history">
-            No evaluation runs logged yet. Run a paired evaluation or run debugging to generate records.
+            No M8 experiments recorded yet. Run a paired evaluation or run debugging to generate records.
           </div>
         ) : (
           <div className="history-table-wrapper">
@@ -419,16 +755,21 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                   <th>Reduct %</th>
                   <th>Total Tokens</th>
                   <th>MCP Calls</th>
-                  <th>Total Time</th>
+                  <th>Total Time (ms)</th>
                   <th>Fix Correct</th>
                   <th>Timestamp</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {recentExperiments.map((exp) => (
                   <tr key={exp.experiment_id}>
-                    <td className="font-mono text-xs">{exp.evaluation_id ? exp.evaluation_id.slice(0, 18) + '...' : '-'}</td>
-                    <td className="font-mono text-xs">{exp.experiment_id ? exp.experiment_id.slice(-14) : '-'}</td>
+                    <td className="font-mono text-xs" title={exp.evaluation_id}>
+                      {exp.evaluation_id ? exp.evaluation_id.slice(0, 16) + '...' : '-'}
+                    </td>
+                    <td className="font-mono text-xs" title={exp.experiment_id}>
+                      {exp.experiment_id ? exp.experiment_id.slice(-14) : '-'}
+                    </td>
                     <td className="font-bold">{exp.bug_id}</td>
                     <td>
                       <span className={`mode-badge ${exp.mode}`}>
@@ -437,7 +778,7 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                     </td>
                     <td>
                       <span className={`status-tag ${exp.status === 'completed' ? 'completed' : 'invalid'}`}>
-                        {exp.status === 'completed' ? 'Completed' : 'Invalid'}
+                        {exp.status === 'completed' ? 'Completed' : exp.status}
                       </span>
                     </td>
                     <td>{(exp.context_chars ?? exp.context_size ?? 0).toLocaleString()} chars</td>
@@ -462,6 +803,17 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                     </td>
                     <td className="text-xs text-muted">
                       {exp.timestamp ? new Date(exp.timestamp).toLocaleTimeString() : '-'}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="table-inspect-btn"
+                        onClick={() => handleInspectEvaluation(exp.evaluation_id)}
+                        title="Inspect run artifacts and telemetry"
+                      >
+                        <Eye size={12} />
+                        <span>Inspect</span>
+                      </button>
                     </td>
                   </tr>
                 ))}

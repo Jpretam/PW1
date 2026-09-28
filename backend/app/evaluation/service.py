@@ -55,9 +55,32 @@ class EvaluationService:
         eval_id = evaluation_id or f"eval_{now_utc.strftime('%Y%m%d_%H%M%S')}_{bug_id.lower()}_{uuid.uuid4().hex[:6]}"
         exp_id = f"{eval_id}_{clean_mode}"
 
+        # Event: experiment_started
+        step = 1
+        self.logger.log_event(
+            evaluation_id=eval_id,
+            experiment_id=exp_id,
+            bug_id=bug_id,
+            mode=clean_mode,
+            event="experiment_started",
+            step=step,
+            data={"language": language, "model": model_name, "code_chars": len(code)},
+        )
+
         overall_start = time.time()
 
         # Step 1: Initial execution to create execution trace
+        step += 1
+        self.logger.log_event(
+            evaluation_id=eval_id,
+            experiment_id=exp_id,
+            bug_id=bug_id,
+            mode=clean_mode,
+            event="execution_started",
+            step=step,
+            data={"language": lang_enum.value},
+        )
+
         exec_request = ExecutionRequest(
             language=lang_enum,
             code=code,
@@ -65,6 +88,21 @@ class EvaluationService:
         )
         exec_response = self.executor.execute_code(exec_request)
         execution_id = exec_response.execution_id
+
+        step += 1
+        self.logger.log_event(
+            evaluation_id=eval_id,
+            experiment_id=exp_id,
+            bug_id=bug_id,
+            mode=clean_mode,
+            event="execution_completed",
+            step=step,
+            data={
+                "execution_id": execution_id,
+                "exit_code": exec_response.exit_code,
+                "status": exec_response.status.value,
+            },
+        )
 
         # Step 2: Run diagnosis & repair workflow in the chosen mode
         fix_result = await self.fixer.fix(
@@ -82,6 +120,33 @@ class EvaluationService:
         # Context character measurement
         context_chars = int(telemetry.get("context_chars") or telemetry.get("context_size") or 0)
         stop_reason = str(telemetry.get("stop_reason", "completed"))
+
+        step += 1
+        if clean_mode == "dynamic":
+            self.logger.log_event(
+                evaluation_id=eval_id,
+                experiment_id=exp_id,
+                bug_id=bug_id,
+                mode=clean_mode,
+                event="curation_completed",
+                step=step,
+                data={
+                    "curated_context_chars": context_chars,
+                    "mcp_calls": int(telemetry.get("mcp_calls", 0) or 0),
+                    "curator_tokens": telemetry.get("dynamic_curator_total_tokens"),
+                    "stop_reason": stop_reason,
+                },
+            )
+        else:
+            self.logger.log_event(
+                evaluation_id=eval_id,
+                experiment_id=exp_id,
+                bug_id=bug_id,
+                mode=clean_mode,
+                event="context_prepared",
+                step=step,
+                data={"baseline_context_chars": context_chars},
+            )
 
         # Determine validity of experiment run
         status = "completed"
@@ -110,6 +175,21 @@ class EvaluationService:
         fix_correct = False
         if re_execution_passed and root_cause_identified and status == "completed":
             fix_correct = self._validate_semantic_correctness(bug_id, fix_result.fixed_code, lang_enum)
+
+        step += 1
+        self.logger.log_event(
+            evaluation_id=eval_id,
+            experiment_id=exp_id,
+            bug_id=bug_id,
+            mode=clean_mode,
+            event="fix_generated",
+            step=step,
+            data={
+                "fix_generated": fix_generated,
+                "re_execution_passed": re_execution_passed,
+                "fix_correct": fix_correct,
+            },
+        )
 
         # Context Reduction Calculation:
         # ((baseline_chars - dynamic_chars) / baseline_chars) * 100
@@ -215,8 +295,25 @@ class EvaluationService:
             timestamp=timestamp,
         )
 
-        # Log record to CSV and JSONL
+        # Log record to CSV, JSON, and JSONL
         self.logger.log_experiment(record)
+
+        step += 1
+        self.logger.log_event(
+            evaluation_id=eval_id,
+            experiment_id=exp_id,
+            bug_id=bug_id,
+            mode=clean_mode,
+            event="experiment_completed",
+            step=step,
+            data={
+                "status": status,
+                "stop_reason": stop_reason,
+                "total_experiment_time_ms": round(overall_time_ms, 2),
+                "total_tokens": tot_tokens,
+                "token_usage_available": token_usage_available,
+            },
+        )
         return record
 
     async def run_paired_experiment(
@@ -247,6 +344,16 @@ class EvaluationService:
         # Generate shared evaluation ID for this pair
         now_utc = datetime.now(timezone.utc)
         shared_eval_id = evaluation_id or f"eval_{now_utc.strftime('%Y%m%d_%H%M%S')}_{effective_bug_id.lower()}_{uuid.uuid4().hex[:6]}"
+
+        self.logger.log_event(
+            evaluation_id=shared_eval_id,
+            experiment_id=f"{shared_eval_id}_paired",
+            bug_id=effective_bug_id,
+            mode="paired",
+            event="evaluation_started",
+            step=1,
+            data={"bug_id": effective_bug_id, "language": language},
+        )
 
         # 1. Run Baseline Mode
         baseline_record = await self.run_experiment(
@@ -298,7 +405,7 @@ class EvaluationService:
         if baseline_record.status == "invalid" or dynamic_record.status == "invalid":
             pair_status = "invalid"
 
-        return ComparisonResult(
+        comparison = ComparisonResult(
             evaluation_id=shared_eval_id,
             bug_id=effective_bug_id,
             language=language.lower(),
@@ -310,6 +417,25 @@ class EvaluationService:
             time_difference_ms=time_diff,
             status=pair_status,
         )
+
+        # Log paired summary artifact and completion event
+        self.logger.log_paired_summary(comparison)
+        self.logger.log_event(
+            evaluation_id=shared_eval_id,
+            experiment_id=f"{shared_eval_id}_paired",
+            bug_id=effective_bug_id,
+            mode="paired",
+            event="evaluation_completed",
+            step=99,
+            data={
+                "context_reduction_percent": ctx_reduct,
+                "token_reduction_percent": tok_reduct,
+                "time_difference_ms": time_diff,
+                "status": pair_status,
+            },
+        )
+
+        return comparison
 
     def _validate_semantic_correctness(self, bug_id: str, fixed_code: Optional[str], language: ExecutionLanguage) -> bool:
         """
