@@ -85,7 +85,7 @@ class DebuggingAgent:
         full_trace_json = json.dumps(full_trace_payload, indent=2)
 
         context_str = f"=== FULL SOURCE CODE ===\n{source_code}\n\n=== FULL RUNTIME EXECUTION TRACE ===\n{full_trace_json}"
-        context_size = len(context_str)
+        context_chars = len(context_str)
 
         user_prompt = f"""
 Diagnose the runtime failure for execution:
@@ -113,10 +113,16 @@ Full Source Code and Runtime Execution Trace:
             result.error = error_data
             result.queries_used = []
 
+            in_tokens = debugger_tracker.safe_input_tokens
+            out_tokens = debugger_tracker.safe_output_tokens
+            tot_tokens = debugger_tracker.safe_total_tokens
+            usage_avail = debugger_tracker.usage_available
+
             telemetry = {
                 "mode": "baseline",
                 "execution_id": execution_id,
-                "context_size": context_size,
+                "context_chars": context_chars,
+                "context_size": context_chars,
                 "mcp_calls": 0,
                 "tools_used": [],
                 "mcp_query_time": 0.0,
@@ -125,16 +131,19 @@ Full Source Code and Runtime Execution Trace:
                 "curation_time": 0.0,
                 "llm_calls": debugger_tracker.calls or 1,
                 "llm_time": debugger_llm_time,
-                "baseline_input_tokens": debugger_tracker.input_tokens,
-                "baseline_output_tokens": debugger_tracker.output_tokens,
-                "baseline_total_tokens": debugger_tracker.total_tokens,
+                "baseline_input_tokens": in_tokens,
+                "baseline_output_tokens": out_tokens,
+                "baseline_total_tokens": tot_tokens,
                 "curator_input_tokens": 0,
                 "curator_output_tokens": 0,
                 "curator_total_tokens": 0,
-                "debugger_input_tokens": debugger_tracker.input_tokens,
-                "debugger_output_tokens": debugger_tracker.output_tokens,
-                "debugger_total_tokens": debugger_tracker.total_tokens,
-                "total_tokens": debugger_tracker.total_tokens,
+                "debugger_input_tokens": in_tokens,
+                "debugger_output_tokens": out_tokens,
+                "debugger_total_tokens": tot_tokens,
+                "input_tokens": in_tokens,
+                "output_tokens": out_tokens,
+                "total_tokens": tot_tokens,
+                "token_usage_available": usage_avail,
                 "stop_reason": "completed",
             }
             result.telemetry = telemetry
@@ -158,7 +167,8 @@ Full Source Code and Runtime Execution Trace:
                 telemetry={
                     "mode": "baseline",
                     "execution_id": execution_id,
-                    "context_size": context_size,
+                    "context_chars": context_chars,
+                    "context_size": context_chars,
                     "mcp_calls": 0,
                     "tools_used": [],
                     "mcp_query_time": 0.0,
@@ -167,16 +177,19 @@ Full Source Code and Runtime Execution Trace:
                     "curation_time": 0.0,
                     "llm_calls": debugger_tracker.calls or 1,
                     "llm_time": debugger_llm_time,
-                    "baseline_input_tokens": debugger_tracker.input_tokens,
-                    "baseline_output_tokens": debugger_tracker.output_tokens,
-                    "baseline_total_tokens": debugger_tracker.total_tokens,
+                    "baseline_input_tokens": None,
+                    "baseline_output_tokens": None,
+                    "baseline_total_tokens": None,
                     "curator_input_tokens": 0,
                     "curator_output_tokens": 0,
                     "curator_total_tokens": 0,
-                    "debugger_input_tokens": debugger_tracker.input_tokens,
-                    "debugger_output_tokens": debugger_tracker.output_tokens,
-                    "debugger_total_tokens": debugger_tracker.total_tokens,
-                    "total_tokens": debugger_tracker.total_tokens,
+                    "debugger_input_tokens": None,
+                    "debugger_output_tokens": None,
+                    "debugger_total_tokens": None,
+                    "input_tokens": None,
+                    "output_tokens": None,
+                    "total_tokens": None,
+                    "token_usage_available": False,
                     "stop_reason": f"error: {str(exc)}",
                 }
             )
@@ -232,21 +245,34 @@ Curated Runtime Context:
             result.queries_used = curator_telemetry.get("tools_used", [])
 
             # Aggregate token measurements: curator + debugger
-            cur_in = curator_telemetry.get("curator_input_tokens", 0)
-            cur_out = curator_telemetry.get("curator_output_tokens", 0)
-            cur_tot = curator_telemetry.get("curator_total_tokens", 0)
+            cur_available = curator_telemetry.get("token_usage_available", False)
+            cur_in = curator_telemetry.get("curator_input_tokens")
+            cur_out = curator_telemetry.get("curator_output_tokens")
+            cur_tot = curator_telemetry.get("curator_total_tokens")
 
-            deb_in = debugger_tracker.input_tokens
-            deb_out = debugger_tracker.output_tokens
-            deb_tot = debugger_tracker.total_tokens
+            deb_available = debugger_tracker.usage_available
+            deb_in = debugger_tracker.safe_input_tokens
+            deb_out = debugger_tracker.safe_output_tokens
+            deb_tot = debugger_tracker.safe_total_tokens
 
-            dynamic_tot = cur_tot + deb_tot
+            overall_tokens_available = cur_available and deb_available
+            if overall_tokens_available:
+                dynamic_tot = (cur_tot or 0) + (deb_tot or 0)
+                tot_in = (cur_in or 0) + (deb_in or 0)
+                tot_out = (cur_out or 0) + (deb_out or 0)
+            else:
+                dynamic_tot = None
+                tot_in = None
+                tot_out = None
+
+            context_chars = len(curated_context)
 
             combined_telemetry = {
                 **curator_telemetry,
                 "mode": "dynamic",
                 "execution_id": execution_id,
-                "context_size": len(curated_context),
+                "context_chars": context_chars,
+                "context_size": context_chars,
                 "curation_time": total_curation_time,
                 "debugger_llm_calls": debugger_tracker.calls or 1,
                 "debugger_llm_time": debugger_llm_time,
@@ -257,22 +283,23 @@ Curated Runtime Context:
                 "dynamic_debugger_output_tokens": deb_out,
                 "dynamic_debugger_total_tokens": deb_tot,
                 "dynamic_total_tokens": dynamic_tot,
+                "input_tokens": tot_in,
+                "output_tokens": tot_out,
                 "total_tokens": dynamic_tot,
+                "token_usage_available": overall_tokens_available,
                 "llm_calls": curator_telemetry.get("llm_calls", 0) + (debugger_tracker.calls or 1),
                 "llm_time": curator_telemetry.get("llm_time", 0.0) + debugger_llm_time,
+                "stop_reason": curator_telemetry.get("stop_reason", "completed"),
             }
             result.telemetry = combined_telemetry
             return result
             
         except Exception as exc:
             debugger_llm_time = time.time() - llm_start
-            cur_in = curator_telemetry.get("curator_input_tokens", 0)
-            cur_out = curator_telemetry.get("curator_output_tokens", 0)
-            cur_tot = curator_telemetry.get("curator_total_tokens", 0)
-            deb_in = debugger_tracker.input_tokens
-            deb_out = debugger_tracker.output_tokens
-            deb_tot = debugger_tracker.total_tokens
-            dynamic_tot = cur_tot + deb_tot
+            cur_in = curator_telemetry.get("curator_input_tokens")
+            cur_out = curator_telemetry.get("curator_output_tokens")
+            cur_tot = curator_telemetry.get("curator_total_tokens")
+            context_chars = len(curated_context)
 
             return DebugDiagnosis(
                 execution_id=execution_id,
@@ -291,18 +318,22 @@ Curated Runtime Context:
                     **curator_telemetry,
                     "mode": "dynamic",
                     "execution_id": execution_id,
-                    "context_size": len(curated_context),
+                    "context_chars": context_chars,
+                    "context_size": context_chars,
                     "curation_time": total_curation_time,
                     "debugger_llm_calls": debugger_tracker.calls or 1,
                     "debugger_llm_time": debugger_llm_time,
                     "dynamic_curator_input_tokens": cur_in,
                     "dynamic_curator_output_tokens": cur_out,
                     "dynamic_curator_total_tokens": cur_tot,
-                    "dynamic_debugger_input_tokens": deb_in,
-                    "dynamic_debugger_output_tokens": deb_out,
-                    "dynamic_debugger_total_tokens": deb_tot,
-                    "dynamic_total_tokens": dynamic_tot,
-                    "total_tokens": dynamic_tot,
+                    "dynamic_debugger_input_tokens": None,
+                    "dynamic_debugger_output_tokens": None,
+                    "dynamic_debugger_total_tokens": None,
+                    "dynamic_total_tokens": None,
+                    "input_tokens": None,
+                    "output_tokens": None,
+                    "total_tokens": None,
+                    "token_usage_available": False,
                     "llm_calls": curator_telemetry.get("llm_calls", 0) + (debugger_tracker.calls or 1),
                     "llm_time": curator_telemetry.get("llm_time", 0.0) + debugger_llm_time,
                     "stop_reason": curator_telemetry.get("stop_reason", f"error: {str(exc)}"),

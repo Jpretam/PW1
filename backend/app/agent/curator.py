@@ -262,9 +262,16 @@ class ContextCurator:
             stop_reason = f"mcp_transport_error: {str(e)}"
             telemetry["stop_reason"] = stop_reason
             
-        telemetry["curator_input_tokens"] = tracker.input_tokens
-        telemetry["curator_output_tokens"] = tracker.output_tokens
-        telemetry["curator_total_tokens"] = tracker.total_tokens
+        if tracker.calls == 0:
+            telemetry["curator_input_tokens"] = 0
+            telemetry["curator_output_tokens"] = 0
+            telemetry["curator_total_tokens"] = 0
+            telemetry["token_usage_available"] = True
+        else:
+            telemetry["curator_input_tokens"] = tracker.safe_input_tokens
+            telemetry["curator_output_tokens"] = tracker.safe_output_tokens
+            telemetry["curator_total_tokens"] = tracker.safe_total_tokens
+            telemetry["token_usage_available"] = tracker.usage_available
 
         telemetry["investigation_directions"] = list(telemetry["investigation_directions"])
         telemetry["time_spent"] = time.time() - start_time

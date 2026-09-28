@@ -167,14 +167,22 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
         </div>
       )}
 
-      {/* Section 11: Side-by-Side Comparison View */}
+      {/* Side-by-Side Comparison View */}
       {comparisonResult && (
         <div className="comparison-card">
           <div className="comparison-card-header">
-            <h4>Experimental Comparison — Benchmark {comparisonResult.bug_id}</h4>
+            <div>
+              <h4>Experimental Comparison — Benchmark {comparisonResult.bug_id}</h4>
+              <span className="text-xs text-muted font-mono">Evaluation ID: {comparisonResult.evaluation_id}</span>
+            </div>
             <div className="reduction-pill">
               <TrendingDown size={14} />
-              <span>Context Reduction: {comparisonResult.context_reduction_percent}%</span>
+              <span>
+                Context Reduction:{' '}
+                {comparisonResult.context_reduction_percent !== null
+                  ? `${comparisonResult.context_reduction_percent}%`
+                  : 'N/A'}
+              </span>
             </div>
           </div>
 
@@ -190,29 +198,73 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
               </thead>
               <tbody>
                 <tr>
-                  <td className="metric-name">Context Size</td>
-                  <td>{comparisonResult.baseline.context_size.toLocaleString()} chars</td>
-                  <td>{comparisonResult.dynamic.context_size.toLocaleString()} chars</td>
-                  <td className="text-reduction">
-                    -{comparisonResult.context_reduction_percent}% reduction
+                  <td className="metric-name">Status</td>
+                  <td>
+                    <span className={`outcome-pill ${comparisonResult.baseline.status === 'completed' ? 'success' : 'failure'}`}>
+                      {comparisonResult.baseline.status === 'completed' ? 'Completed' : 'Invalid'}
+                    </span>
                   </td>
+                  <td>
+                    <span className={`outcome-pill ${comparisonResult.dynamic.status === 'completed' ? 'success' : 'failure'}`}>
+                      {comparisonResult.dynamic.status === 'completed' ? 'Completed' : 'Invalid'}
+                    </span>
+                  </td>
+                  <td>Experiment run validity</td>
+                </tr>
+                <tr>
+                  <td className="metric-name">Context Size (chars)</td>
+                  <td>{(comparisonResult.baseline.context_chars ?? comparisonResult.baseline.context_size ?? 0).toLocaleString()} chars</td>
+                  <td>{(comparisonResult.dynamic.context_chars ?? comparisonResult.dynamic.context_size ?? 0).toLocaleString()} chars</td>
+                  <td className="text-reduction">
+                    {comparisonResult.context_reduction_percent !== null
+                      ? `-${comparisonResult.context_reduction_percent}% reduction`
+                      : 'N/A'}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="metric-name">Input Tokens</td>
+                  <td>
+                    {comparisonResult.baseline.token_usage_available && comparisonResult.baseline.input_tokens !== null
+                      ? comparisonResult.baseline.input_tokens.toLocaleString()
+                      : 'N/A'}
+                  </td>
+                  <td>
+                    {comparisonResult.dynamic.token_usage_available && comparisonResult.dynamic.input_tokens !== null
+                      ? comparisonResult.dynamic.input_tokens.toLocaleString()
+                      : 'N/A'}
+                  </td>
+                  <td>Prompt token consumption</td>
+                </tr>
+                <tr>
+                  <td className="metric-name">Output Tokens</td>
+                  <td>
+                    {comparisonResult.baseline.token_usage_available && comparisonResult.baseline.output_tokens !== null
+                      ? comparisonResult.baseline.output_tokens.toLocaleString()
+                      : 'N/A'}
+                  </td>
+                  <td>
+                    {comparisonResult.dynamic.token_usage_available && comparisonResult.dynamic.output_tokens !== null
+                      ? comparisonResult.dynamic.output_tokens.toLocaleString()
+                      : 'N/A'}
+                  </td>
+                  <td>Completion token consumption</td>
                 </tr>
                 <tr>
                   <td className="metric-name">Total Tokens</td>
                   <td>
-                    {comparisonResult.baseline.total_tokens > 0
+                    {comparisonResult.baseline.token_usage_available && comparisonResult.baseline.total_tokens !== null
                       ? comparisonResult.baseline.total_tokens.toLocaleString()
-                      : '0 (recorded)'}
+                      : 'N/A'}
                   </td>
                   <td>
-                    {comparisonResult.dynamic.total_tokens > 0
-                      ? `${comparisonResult.dynamic.total_tokens.toLocaleString()} (Curator: ${comparisonResult.dynamic.curator_total_tokens}, Debugger: ${comparisonResult.dynamic.debugger_total_tokens})`
-                      : '0 (recorded)'}
+                    {comparisonResult.dynamic.token_usage_available && comparisonResult.dynamic.total_tokens !== null
+                      ? `${comparisonResult.dynamic.total_tokens.toLocaleString()} (Curator: ${comparisonResult.dynamic.curator_total_tokens ?? 0}, Debugger: ${comparisonResult.dynamic.debugger_total_tokens ?? 0})`
+                      : 'N/A'}
                   </td>
                   <td>
-                    {comparisonResult.token_reduction_percent !== 0
-                      ? `${comparisonResult.token_reduction_percent}% token delta`
-                      : 'Real metadata tracked'}
+                    {comparisonResult.token_reduction_percent !== null
+                      ? `${comparisonResult.token_reduction_percent}% reduction`
+                      : 'N/A (provider metadata unavailable)'}
                   </td>
                 </tr>
                 <tr>
@@ -238,20 +290,27 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                   <td>Total model query duration</td>
                 </tr>
                 <tr>
-                  <td className="metric-name">MCP Time</td>
-                  <td>0 ms</td>
-                  <td>
-                    {comparisonResult.dynamic.mcp_time_ms.toFixed(1)} ms
-                    <span className="sub-metric">
-                      (Query: {comparisonResult.dynamic.mcp_query_time_ms.toFixed(1)}ms, Transport: {comparisonResult.dynamic.mcp_transport_time_ms.toFixed(1)}ms)
-                    </span>
-                  </td>
-                  <td>Isolated tool execution</td>
+                  <td className="metric-name">MCP Query Time</td>
+                  <td>0.0 ms</td>
+                  <td>{comparisonResult.dynamic.mcp_query_time_ms.toFixed(1)} ms</td>
+                  <td>Isolated MCP tool execution</td>
+                </tr>
+                <tr>
+                  <td className="metric-name">MCP Transport Time</td>
+                  <td>0.0 ms</td>
+                  <td>{comparisonResult.dynamic.mcp_transport_time_ms.toFixed(1)} ms</td>
+                  <td>MCP client transport/session overhead</td>
+                </tr>
+                <tr>
+                  <td className="metric-name">MCP Total Time</td>
+                  <td>0.0 ms</td>
+                  <td>{(comparisonResult.dynamic.mcp_total_time_ms || comparisonResult.dynamic.mcp_time_ms || 0).toFixed(1)} ms</td>
+                  <td>Combined MCP overhead (query + transport)</td>
                 </tr>
                 <tr>
                   <td className="metric-name">Total Experiment Time</td>
-                  <td>{comparisonResult.baseline.total_time_ms.toFixed(1)} ms</td>
-                  <td>{comparisonResult.dynamic.total_time_ms.toFixed(1)} ms</td>
+                  <td>{(comparisonResult.baseline.total_experiment_time_ms || comparisonResult.baseline.total_time_ms || 0).toFixed(1)} ms</td>
+                  <td>{(comparisonResult.dynamic.total_experiment_time_ms || comparisonResult.dynamic.total_time_ms || 0).toFixed(1)} ms</td>
                   <td>{comparisonResult.time_difference_ms > 0 ? `+${comparisonResult.time_difference_ms} ms` : `${comparisonResult.time_difference_ms} ms`}</td>
                 </tr>
                 <tr>
@@ -270,7 +329,7 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                       <span className="outcome-pill failure"><XCircle size={12} /> No</span>
                     )}
                   </td>
-                  <td>Empirical accuracy</td>
+                  <td>Empirical diagnostic accuracy</td>
                 </tr>
                 <tr>
                   <td className="metric-name">Fix Generated</td>
@@ -288,7 +347,7 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                       <span className="outcome-pill failure"><XCircle size={12} /> No</span>
                     )}
                   </td>
-                  <td>Candidate patch</td>
+                  <td>Candidate patch synthesized</td>
                 </tr>
                 <tr>
                   <td className="metric-name">Re-execution Passed</td>
@@ -306,7 +365,25 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                       <span className="outcome-pill failure"><XCircle size={12} /> Failed</span>
                     )}
                   </td>
-                  <td>Sandbox verification</td>
+                  <td>Sandbox exit code 0</td>
+                </tr>
+                <tr>
+                  <td className="metric-name">Fix Correct</td>
+                  <td>
+                    {comparisonResult.baseline.fix_correct ? (
+                      <span className="outcome-pill success"><CheckCircle2 size={12} /> Validated</span>
+                    ) : (
+                      <span className="outcome-pill failure"><XCircle size={12} /> Not Validated</span>
+                    )}
+                  </td>
+                  <td>
+                    {comparisonResult.dynamic.fix_correct ? (
+                      <span className="outcome-pill success"><CheckCircle2 size={12} /> Validated</span>
+                    ) : (
+                      <span className="outcome-pill failure"><XCircle size={12} /> Not Validated</span>
+                    )}
+                  </td>
+                  <td>Semantic correctness validation</td>
                 </tr>
               </tbody>
             </table>
@@ -333,38 +410,54 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
             <table className="history-table">
               <thead>
                 <tr>
+                  <th>Evaluation ID</th>
                   <th>Experiment ID</th>
                   <th>Bug</th>
                   <th>Mode</th>
-                  <th>Context Size</th>
+                  <th>Status</th>
+                  <th>Context Size (chars)</th>
                   <th>Reduct %</th>
                   <th>Total Tokens</th>
                   <th>MCP Calls</th>
                   <th>Total Time</th>
-                  <th>Fix Passed</th>
+                  <th>Fix Correct</th>
                   <th>Timestamp</th>
                 </tr>
               </thead>
               <tbody>
                 {recentExperiments.map((exp) => (
                   <tr key={exp.experiment_id}>
-                    <td className="font-mono text-xs">{exp.experiment_id.slice(0, 22)}...</td>
+                    <td className="font-mono text-xs">{exp.evaluation_id ? exp.evaluation_id.slice(0, 18) + '...' : '-'}</td>
+                    <td className="font-mono text-xs">{exp.experiment_id ? exp.experiment_id.slice(-14) : '-'}</td>
                     <td className="font-bold">{exp.bug_id}</td>
                     <td>
                       <span className={`mode-badge ${exp.mode}`}>
                         {exp.mode === 'baseline' ? 'Baseline' : 'Dynamic'}
                       </span>
                     </td>
-                    <td>{exp.context_size.toLocaleString()} chars</td>
-                    <td>{exp.context_reduction_percent > 0 ? `-${exp.context_reduction_percent}%` : '-'}</td>
-                    <td>{exp.total_tokens.toLocaleString()}</td>
+                    <td>
+                      <span className={`status-tag ${exp.status === 'completed' ? 'completed' : 'invalid'}`}>
+                        {exp.status === 'completed' ? 'Completed' : 'Invalid'}
+                      </span>
+                    </td>
+                    <td>{(exp.context_chars ?? exp.context_size ?? 0).toLocaleString()} chars</td>
+                    <td>
+                      {exp.context_reduction_percent !== null && exp.context_reduction_percent > 0
+                        ? `-${exp.context_reduction_percent}%`
+                        : '-'}
+                    </td>
+                    <td>
+                      {exp.token_usage_available && exp.total_tokens !== null
+                        ? exp.total_tokens.toLocaleString()
+                        : 'N/A'}
+                    </td>
                     <td>{exp.mcp_calls}</td>
-                    <td>{exp.total_time_ms.toFixed(0)} ms</td>
+                    <td>{(exp.total_experiment_time_ms || exp.total_time_ms || 0).toFixed(0)} ms</td>
                     <td>
                       {exp.fix_correct ? (
-                        <span className="text-success text-xs font-semibold">Passed</span>
+                        <span className="text-success text-xs font-semibold">Validated</span>
                       ) : (
-                        <span className="text-danger text-xs font-semibold">Failed</span>
+                        <span className="text-muted text-xs">No</span>
                       )}
                     </td>
                     <td className="text-xs text-muted">

@@ -238,13 +238,16 @@ export const OutputPanel = ({
               Mode: {(diagnosis?.telemetry || fixResult?.telemetry).mode === 'baseline' ? 'Baseline (Full Context)' : 'Dynamic (Curated Context)'}
             </span>
             <span className="telemetry-badge">
-              Context: {((diagnosis?.telemetry || fixResult?.telemetry).context_size || 0).toLocaleString()} chars
+              Context Size (chars): {(((diagnosis?.telemetry || fixResult?.telemetry).context_chars ?? (diagnosis?.telemetry || fixResult?.telemetry).context_size) || 0).toLocaleString()}
             </span>
             <span className="telemetry-badge">
               MCP Calls: {(diagnosis?.telemetry || fixResult?.telemetry).mcp_calls || 0}
             </span>
             <span className="telemetry-badge">
-              Total Tokens: {((diagnosis?.telemetry || fixResult?.telemetry).total_tokens || 0).toLocaleString()}
+              Total Tokens:{' '}
+              {(diagnosis?.telemetry || fixResult?.telemetry).token_usage_available && (diagnosis?.telemetry || fixResult?.telemetry).total_tokens !== null
+                ? (diagnosis?.telemetry || fixResult?.telemetry).total_tokens.toLocaleString()
+                : 'N/A'}
             </span>
           </div>
         )}

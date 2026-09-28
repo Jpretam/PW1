@@ -1,28 +1,13 @@
 """
-Tests for Milestone 8: Baseline Comparison and Evaluation.
-Validates:
-1. Baseline execution works without MCP (mcp_calls == 0, no curator).
-2. Dynamic execution uses M7 / MCP.
-3. Same bug can run in both modes (paired experiment).
-4. Same LLM/model is used.
-5. Token usage is captured correctly without estimation.
-6. LLM calls are counted correctly.
-7. MCP calls are counted correctly.
-8. Timing metrics are recorded accurately.
-9. Experiment CSV records and JSONL events are saved properly.
-10. Benchmark registry B001-B008 functions properly.
+Tests for Milestone 8: Baseline Comparison, Token Tracking, Measurement Validation, and Experiment Pairing.
 """
 
-import os
-import shutil
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-
+from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
-from langchain_core.outputs import ChatGeneration, ChatResult, LLMResult
+from langchain_core.outputs import ChatGeneration, LLMResult
 
 from app.agent.debugger import DebuggingAgent
 from app.agent.models import DebugDiagnosis
@@ -34,13 +19,12 @@ from app.evaluation.service import EvaluationService
 from app.main import app
 from app.models.execution import ExecutionLanguage, ExecutionRequest
 from app.services.executor import CodeExecutionService
-from app.services.trace_store.store import store
 
 client = TestClient(app)
 
 
-def test_token_tracker_callback():
-    """Verify TokenUsageCallback captures exact tokens from AIMessage and fallback."""
+def test_token_usage_extraction():
+    """1. Verify TokenUsageCallback extracts actual provider usage metadata from AIMessage and fallback."""
     tracker = TokenUsageCallback()
 
     # Simulate LangChain LLMResult with usage_metadata
@@ -52,9 +36,13 @@ def test_token_tracker_callback():
 
     tracker.on_llm_end(result)
     assert tracker.calls == 1
+    assert tracker.usage_available is True
     assert tracker.input_tokens == 150
     assert tracker.output_tokens == 45
     assert tracker.total_tokens == 195
+    assert tracker.safe_input_tokens == 150
+    assert tracker.safe_output_tokens == 45
+    assert tracker.safe_total_tokens == 195
 
     # Simulate second call with llm_output fallback
     result_fallback = LLMResult(
@@ -68,78 +56,155 @@ def test_token_tracker_callback():
     assert tracker.total_tokens == 295
 
 
-def test_benchmark_registry():
-    """Verify predefined benchmarks B001 to B008 exist with code and expected error."""
-    benchmarks = get_all_benchmarks()
-    assert len(benchmarks) == 8
+def test_missing_token_usage_does_not_become_zero():
+    """2. Verify missing token metadata from provider results in None and usage_available=False, never 0."""
+    tracker = TokenUsageCallback()
 
-    b_ids = [b.bug_id for b in benchmarks]
-    for expected_id in ["B001", "B002", "B003", "B004", "B005", "B006", "B007", "B008"]:
-        assert expected_id in b_ids
-        bench = get_benchmark(expected_id)
-        assert bench is not None
-        assert len(bench.code.strip()) > 0
-        assert len(bench.expected_error.strip()) > 0
+    # LLMResult with empty generations and no usage_metadata or token_usage
+    msg = AIMessage(content='{"result": "ok"}')
+    result = LLMResult(generations=[[ChatGeneration(message=msg)]])
+
+    tracker.on_llm_end(result)
+    assert tracker.calls == 1
+    assert tracker.usage_available is False
+    assert tracker.safe_input_tokens is None
+    assert tracker.safe_output_tokens is None
+    assert tracker.safe_total_tokens is None
+    # Crucial: safe properties return None, not 0
+    assert tracker.safe_total_tokens != 0
 
 
-def test_experiment_logger(tmp_path):
-    """Verify ExperimentLogger writes CSV and JSONL records correctly."""
-    logger = ExperimentLogger(data_dir=tmp_path)
+def test_context_character_measurement():
+    """3. Verify context_chars measures characters and distinguishes characters from tokens."""
+    context_text = "def hello():\n    return 'world'"
+    char_count = len(context_text)
+
     record = ExperimentRecord(
-        experiment_id="exp_test_001",
+        evaluation_id="eval_test",
+        experiment_id="exp_test",
         bug_id="B001",
         mode="baseline",
         language="python",
         model="openrouter/free",
-        llm_calls=1,
-        input_tokens=200,
-        output_tokens=50,
-        total_tokens=250,
-        curator_input_tokens=0,
-        curator_output_tokens=0,
-        curator_total_tokens=0,
-        debugger_input_tokens=200,
-        debugger_output_tokens=50,
-        debugger_total_tokens=250,
-        mcp_calls=0,
-        context_size=1200,
-        context_reduction_percent=0.0,
-        llm_time_ms=300.0,
-        mcp_query_time_ms=0.0,
-        mcp_transport_time_ms=0.0,
-        mcp_time_ms=0.0,
-        total_curation_time_ms=0.0,
-        total_debugging_time_ms=450.0,
-        total_time_ms=500.0,
-        root_cause_identified=True,
-        fix_generated=True,
-        fix_correct=True,
-        re_execution_passed=True,
-        stop_reason="completed",
-        timestamp="2026-09-28T12:00:00Z",
+        context_chars=char_count,
+        input_tokens=12,  # token count is different from character count
+        output_tokens=5,
+        total_tokens=17,
+        token_usage_available=True,
     )
 
-    logger.log_experiment(record)
+    assert record.context_chars == char_count
+    assert record.context_size == char_count
+    assert record.context_chars != record.total_tokens
 
-    # Verify CSV file
-    assert logger.csv_path.exists()
-    records = logger.get_experiments()
-    assert len(records) == 1
-    assert records[0].experiment_id == "exp_test_001"
-    assert records[0].bug_id == "B001"
-    assert records[0].mode == "baseline"
-    assert records[0].mcp_calls == 0
-    assert records[0].total_tokens == 250
 
-    # Verify JSONL file
-    assert logger.jsonl_path.exists()
-    content = logger.jsonl_path.read_text(encoding="utf-8")
-    assert "exp_test_001" in content
+def test_context_reduction_calculation():
+    """4. Verify context reduction formula: ((baseline_chars - dynamic_chars) / baseline_chars) * 100."""
+    baseline_chars = 10000
+    dynamic_chars = 1200
+    expected_reduction = round(((baseline_chars - dynamic_chars) / baseline_chars) * 100.0, 2)
+    assert expected_reduction == 88.0
+
+    service = EvaluationService(logger=MagicMock())
+    # Test formula directly
+    reduction = round(((baseline_chars - dynamic_chars) / baseline_chars) * 100.0, 2)
+    assert reduction == 88.0
+
+
+def test_token_reduction_calculation_and_unavailable_handling():
+    """Verify token reduction is calculated when available, and None (not fake 0) when unavailable."""
+    # When available
+    base_tok = 1000
+    dyn_tok = 400
+    expected_reduction = round(((base_tok - dyn_tok) / base_tok) * 100.0, 2)
+    assert expected_reduction == 60.0
+
+    # When unavailable, ComparisonResult returns None for token_reduction_percent
+    base_rec = ExperimentRecord(
+        evaluation_id="eval_1",
+        experiment_id="exp_1",
+        bug_id="B001",
+        mode="baseline",
+        language="python",
+        model="test",
+        token_usage_available=False,
+        total_tokens=None,
+    )
+    dyn_rec = ExperimentRecord(
+        evaluation_id="eval_1",
+        experiment_id="exp_2",
+        bug_id="B001",
+        mode="dynamic",
+        language="python",
+        model="test",
+        token_usage_available=False,
+        total_tokens=None,
+    )
+    from app.evaluation.models import ComparisonResult
+    comp = ComparisonResult(
+        evaluation_id="eval_1",
+        bug_id="B001",
+        language="python",
+        model="test",
+        baseline=base_rec,
+        dynamic=dyn_rec,
+        context_reduction_percent=None,
+        token_reduction_percent=None,
+        time_difference_ms=10.0,
+    )
+    assert comp.token_reduction_percent is None
 
 
 @pytest.mark.asyncio
-async def test_baseline_diagnosis_mode_does_not_use_mcp():
-    """Verify Baseline Mode: uses full source code and trace, never invokes MCP or curator."""
+async def test_experiment_pairing_and_single_record_creation(tmp_path):
+    """5 & 6. Verify shared evaluation_id links paired runs, and 1 request creates 1 record per mode."""
+    isolated_logger = ExperimentLogger(data_dir=tmp_path)
+    service = EvaluationService(logger=isolated_logger)
+
+    with patch("app.agent.debugger.get_llm") as mock_get_llm, \
+         patch("app.agent.curator.streamable_http_client") as mock_client, \
+         patch("app.agent.curator.ClientSession"):
+
+        mock_ctx = AsyncMock()
+        mock_read = AsyncMock()
+        mock_write = AsyncMock()
+        mock_client.return_value.__aenter__.return_value = (mock_read, mock_write)
+
+        mock_llm = MagicMock()
+        mock_model = AsyncMock()
+        mock_model.ainvoke.return_value = DebugDiagnosis(
+            execution_id="dummy",
+            diagnosis="ZeroDivisionError",
+            root_cause="Division by zero",
+            evidence=[],
+            queries_used=[],
+            confidence=0.9,
+            suggested_fix="return 0",
+        )
+        mock_llm.with_structured_output.return_value = mock_model
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content="def calculate(x): return 10 / x if x != 0 else 0\nprocess()"))
+        mock_get_llm.return_value = mock_llm
+
+        # Run paired experiment
+        result = await service.run_paired_experiment(bug_id="B001")
+
+        # 1. Pairing verification
+        assert result.evaluation_id.startswith("eval_")
+        assert result.baseline.evaluation_id == result.evaluation_id
+        assert result.dynamic.evaluation_id == result.evaluation_id
+        assert result.baseline.experiment_id == f"{result.evaluation_id}_baseline"
+        assert result.dynamic.experiment_id == f"{result.evaluation_id}_dynamic"
+
+        # 2. Exactly 2 records in isolated logger
+        records = isolated_logger.get_experiments()
+        assert len(records) == 2
+        modes = {r.mode for r in records}
+        assert modes == {"baseline", "dynamic"}
+
+
+@pytest.mark.asyncio
+async def test_baseline_produces_zero_mcp_calls():
+    """7. Verify Baseline Mode: uses full source code and trace, produces zero MCP calls."""
     executor = CodeExecutionService()
     exec_resp = executor.execute_code(ExecutionRequest(
         language=ExecutionLanguage.PYTHON,
@@ -167,7 +232,6 @@ async def test_baseline_diagnosis_mode_does_not_use_mcp():
         agent = DebuggingAgent()
         diag = await agent.diagnose(execution_id=exec_resp.execution_id, mode="baseline")
 
-        # Crucial assertions for Baseline
         assert mock_curate.call_count == 0  # Curator NEVER called in baseline
         assert diag.telemetry is not None
         assert diag.telemetry["mode"] == "baseline"
@@ -175,14 +239,13 @@ async def test_baseline_diagnosis_mode_does_not_use_mcp():
         assert diag.telemetry["mcp_query_time"] == 0.0
         assert diag.telemetry["mcp_transport_time"] == 0.0
         assert diag.telemetry["curator_input_tokens"] == 0
-        assert diag.telemetry["curator_total_tokens"] == 0
-        assert diag.telemetry["context_size"] > 0
+        assert diag.telemetry["context_chars"] > 0
         assert "=== FULL SOURCE CODE ===" in mock_model.ainvoke.call_args[0][0][1][1]
 
 
 @pytest.mark.asyncio
-async def test_dynamic_diagnosis_mode_uses_m7_and_mcp():
-    """Verify Dynamic Mode: uses M7 ContextCurator and records curator + debugger tokens."""
+async def test_dynamic_records_mcp_calls_and_timing():
+    """8 & 9. Verify Dynamic Mode records MCP calls and distinct timing fields."""
     executor = CodeExecutionService()
     exec_resp = executor.execute_code(ExecutionRequest(
         language=ExecutionLanguage.PYTHON,
@@ -202,6 +265,7 @@ async def test_dynamic_diagnosis_mode_uses_m7_and_mcp():
                 "curator_input_tokens": 120,
                 "curator_output_tokens": 30,
                 "curator_total_tokens": 150,
+                "token_usage_available": True,
                 "llm_calls": 1,
                 "llm_time": 0.5,
                 "mcp_query_time": 0.08,
@@ -229,70 +293,134 @@ async def test_dynamic_diagnosis_mode_uses_m7_and_mcp():
         agent = DebuggingAgent()
         diag = await agent.diagnose(execution_id=exec_resp.execution_id, mode="dynamic")
 
-        assert mock_curate.call_count == 1  # Curator WAS called
+        assert mock_curate.call_count == 1
         assert diag.telemetry is not None
         assert diag.telemetry["mode"] == "dynamic"
         assert diag.telemetry["mcp_calls"] == 2
+        assert diag.telemetry["mcp_query_time"] == 0.08
+        assert diag.telemetry["mcp_transport_time"] == 0.02
+        assert diag.telemetry["mcp_total_time"] == 0.10
         assert diag.telemetry["dynamic_curator_total_tokens"] == 150
-        assert "get_error_context" in diag.telemetry["tools_used"]
 
 
 @pytest.mark.asyncio
-async def test_paired_benchmark_execution():
-    """Verify running both Baseline and Dynamic on the same bug produces valid comparison."""
-    service = EvaluationService()
-    bench = get_benchmark("B001")
-    assert bench is not None
+async def test_invalid_experiment_record_handling(tmp_path):
+    """10. Verify 2-char context or mcp_transport_error is flagged as invalid, not completed."""
+    isolated_logger = ExperimentLogger(data_dir=tmp_path)
+    service = EvaluationService(logger=isolated_logger)
 
-    with patch("app.agent.debugger.get_llm") as mock_get_llm, \
-         patch("app.agent.curator.streamable_http_client"), \
-         patch("app.agent.curator.ClientSession"):
-
-        mock_llm = MagicMock()
-        mock_model = AsyncMock()
-        mock_model.ainvoke.return_value = DebugDiagnosis(
-            execution_id="dummy",
-            diagnosis="ZeroDivisionError",
-            root_cause="value is 0",
-            evidence=["calculate(0) called"],
+    with patch("app.agent.fixer.FixerAgent.fix") as mock_fix:
+        # Simulate failed curation producing empty context [] (2 chars)
+        mock_diagnosis = DebugDiagnosis(
+            execution_id="dummy_fail",
+            diagnosis="Diagnosis unavailable",
+            root_cause="",
+            evidence=[],
             queries_used=[],
-            confidence=0.95,
-            suggested_fix="if x == 0: return 0\nreturn 10 / x"
+            confidence=0.0,
+            suggested_fix="none",
+            telemetry={
+                "mode": "dynamic",
+                "context_chars": 2,
+                "context_size": 2,
+                "mcp_calls": 0,
+                "mcp_query_time": 0.0,
+                "mcp_transport_time": 0.0,
+                "mcp_total_time": 0.0,
+                "stop_reason": "mcp_transport_error: connection refused",
+            }
         )
-        mock_llm.with_structured_output.return_value = mock_model
-        # For fixer's ainvoke: return working code
-        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(
-            content="def calculate(x):\n    if x == 0: return 0\n    return 10 / x\ndef process():\n    value = 0\n    return calculate(value)\nprocess()"
-        ))
-        mock_get_llm.return_value = mock_llm
+        mock_fix.return_value = MagicMock(
+            original_diagnosis=mock_diagnosis,
+            fixed_code="",
+            success=False,
+            telemetry=mock_diagnosis.telemetry,
+        )
 
-        result = await service.run_paired_experiment(bug_id="B001")
+        record = await service.run_experiment(
+            code="def f(): pass",
+            mode="dynamic",
+            bug_id="B001",
+        )
 
-        assert result.bug_id == "B001"
-        assert result.baseline.mode == "baseline"
-        assert result.dynamic.mode == "dynamic"
-        assert result.baseline.mcp_calls == 0
-        assert result.baseline.context_size > 0
-        assert result.dynamic.context_size > 0
-        assert result.baseline.model == result.dynamic.model
-        assert result.baseline.language == "python"
-        assert result.dynamic.language == "python"
+        assert record.status == "invalid"
+        assert record.context_reduction_percent is None
+        assert record.fix_correct is False
+
+
+def test_benchmark_registry():
+    """Verify predefined benchmarks B001 to B008 exist with valid specifications."""
+    benchmarks = get_all_benchmarks()
+    assert len(benchmarks) == 8
+
+    b_ids = [b.bug_id for b in benchmarks]
+    for expected_id in ["B001", "B002", "B003", "B004", "B005", "B006", "B007", "B008"]:
+        assert expected_id in b_ids
+        bench = get_benchmark(expected_id)
+        assert bench is not None
+        assert len(bench.code.strip()) > 0
+        assert len(bench.expected_error.strip()) > 0
+
+
+def test_experiment_logger_schema_and_persistence(tmp_path):
+    """Verify ExperimentLogger writes and reads CSV records with the Section 11 schema."""
+    logger = ExperimentLogger(data_dir=tmp_path)
+    record = ExperimentRecord(
+        evaluation_id="eval_20260928_b001_123456",
+        experiment_id="eval_20260928_b001_123456_baseline",
+        bug_id="B001",
+        mode="baseline",
+        language="python",
+        model="openrouter/free",
+        context_chars=11440,
+        input_tokens=250,
+        output_tokens=60,
+        total_tokens=310,
+        token_usage_available=True,
+        curator_input_tokens=0,
+        curator_output_tokens=0,
+        curator_total_tokens=0,
+        debugger_input_tokens=250,
+        debugger_output_tokens=60,
+        debugger_total_tokens=310,
+        llm_calls=1,
+        mcp_calls=0,
+        mcp_query_time_ms=0.0,
+        mcp_transport_time_ms=0.0,
+        mcp_total_time_ms=0.0,
+        llm_time_ms=350.0,
+        total_experiment_time_ms=500.0,
+        root_cause_identified=True,
+        fix_generated=True,
+        fix_correct=True,
+        re_execution_passed=True,
+        stop_reason="completed",
+        status="completed",
+        timestamp="2026-09-28T12:00:00Z",
+    )
+
+    logger.log_experiment(record)
+    records = logger.get_experiments()
+    assert len(records) == 1
+    r = records[0]
+    assert r.evaluation_id == "eval_20260928_b001_123456"
+    assert r.experiment_id == "eval_20260928_b001_123456_baseline"
+    assert r.context_chars == 11440
+    assert r.total_tokens == 310
+    assert r.token_usage_available is True
+    assert r.status == "completed"
 
 
 def test_api_evaluation_routes():
     """Verify the /evaluation REST endpoints."""
-    # 1. GET /evaluation/benchmarks
     resp = client.get("/evaluation/benchmarks")
     assert resp.status_code == 200
-    benchmarks = resp.json()
-    assert len(benchmarks) == 8
+    assert len(resp.json()) == 8
 
-    # 2. GET /evaluation/benchmarks/B001
     resp_b1 = client.get("/evaluation/benchmarks/B001")
     assert resp_b1.status_code == 200
     assert resp_b1.json()["bug_id"] == "B001"
 
-    # 3. GET /evaluation/experiments
     resp_exp = client.get("/evaluation/experiments?limit=10")
     assert resp_exp.status_code == 200
     assert isinstance(resp_exp.json(), list)

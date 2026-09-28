@@ -83,6 +83,7 @@ async def run_single_experiment(request: BenchmarkRunRequest) -> ExperimentRecor
             stdin=stdin,
             mode=request.mode,
             bug_id=bug_id,
+            evaluation_id=request.evaluation_id,
         )
         return record
     except Exception as exc:
@@ -104,6 +105,7 @@ async def run_paired_evaluation(request: PairedBenchmarkRunRequest) -> Compariso
             code=request.code,
             language=request.language or "python",
             stdin=request.stdin or "",
+            evaluation_id=request.evaluation_id,
         )
         return result
     except ValueError as exc:
