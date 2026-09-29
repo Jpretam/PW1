@@ -1,0 +1,20 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: CI/CD pipeline started
+        run: echo "Pipeline running successfully."
+
+      - name: Pipeline completed
+        run: echo "Project is ready for the next stage."
