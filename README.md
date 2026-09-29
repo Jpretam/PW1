@@ -1,4 +1,4 @@
-# PW1
+# Project Work 1
 
 **Research Project**: Dynamic Context Curation for Agentic Software Engineering using Runtime Execution Tracing and Model Context Protocol (MCP)
 
@@ -7,12 +7,6 @@
 ## 1. Project Overview
 This repository contains Modules 1â€“4 of a larger software engineering research project. The ultimate objective is to build an AI-assisted debugging system that dynamically retrieves runtime state information using the Model Context Protocol (MCP) instead of sending full source files and raw execution traces to an LLM.
 
-**Module 1** provides the foundational **secure code execution engine**, allowing users to write, execute, and inspect Python and Java 17 programs securely inside isolated Docker containers.
-
-> [!NOTE]
-> This repository currently implements **Module 1 (Code Execution Engine)** only. Features such as MCP, AI Agents, LLM Integration, Vector DBs, RAG, and Runtime Execution Tracing are intentional non-goals for this module and will be implemented in subsequent project phases.
-
----
 
 ## 2. Current Module Scope
 - Web-based code playground supporting **Python 3** and **Java 17**.
