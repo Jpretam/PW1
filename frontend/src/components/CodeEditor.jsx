@@ -94,20 +94,21 @@ export const CodeEditor = ({
           )}
         </div>
         <div className="editor-actions">
-          {uploadedFileName && (
+          {onResetCode && (
             <button
+              type="button"
               onClick={onResetCode}
               className="reset-button"
-              title="Reset to starter template"
+              title="Reset to starter code"
             >
-              <RotateCcw size={13} />
+              <RotateCcw size={12} />
               <span>Reset</span>
             </button>
           )}
           <span className="editor-mode">{monacoLanguage.toUpperCase()}</span>
         </div>
       </div>
-      <div className="editor-wrapper" style={{ minHeight: '420px', height: '100%' }}>
+      <div className="editor-wrapper">
         {isDragging && (
           <div className="drag-overlay">
             <div className="drag-overlay-content">

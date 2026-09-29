@@ -1,0 +1,27 @@
+2026-09-29 11:36:46 [INFO] [app.curator]: curation_summary: execution_id=bb514d86-e9e0-4f47-987b-337852b0cc8d mcp_calls=3 context_size=810 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-29 11:37:08 [INFO] [app.curator]: curation_summary: execution_id=015f46a7-7a8b-4111-8c15-736cf1cf77de mcp_calls=3 context_size=810 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-29 11:37:09 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=4 context_size=912 time_spent=0.01s stop_reason=root_cause_identified
+2026-09-29 11:37:09 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=3 context_size=718 time_spent=0.00s stop_reason=budget_limit_reached
+2026-09-29 11:37:09 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=4 context_size=912 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-29 11:37:09 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=4 context_size=912 time_spent=0.00s stop_reason=llm_rate_limit_exceeded
+2026-09-29 11:37:43 [INFO] [app.curator]: curation_summary: execution_id=90f9e556-f9a6-4df5-8eed-f6e89ab43e9f mcp_calls=0 context_size=2 time_spent=2.39s stop_reason=mcp_transport_error: unhandled errors in a TaskGroup (1 sub-exception)
+2026-09-29 11:38:19 [INFO] [app.curator]: curation_summary: execution_id=1a0c1ad3-c4ed-4728-837d-9e3f0e69a612 mcp_calls=0 context_size=2 time_spent=2.31s stop_reason=mcp_transport_error: unhandled errors in a TaskGroup (1 sub-exception)
+2026-09-29 11:38:53 [INFO] [app.curator]: curation_summary: execution_id=1caec561-20f6-4772-8f26-b80850206e5b mcp_calls=0 context_size=2 time_spent=2.28s stop_reason=mcp_transport_error: unhandled errors in a TaskGroup (1 sub-exception)
+2026-09-29 11:39:32 [INFO] [app.main]: PW1 API application starting up...
+2026-09-29 11:39:32 [INFO] [app.main]: MCP session manager initialized on /mcp
+2026-09-29 11:44:45 [INFO] [app.curator]: curation_summary: execution_id=5def5594-1c6f-48a7-9dea-ada6a1a7bf97 mcp_calls=5 context_size=1683 time_spent=38.32s stop_reason=root_cause_identified
+2026-09-29 11:49:16 [INFO] [app.curator]: curation_summary: execution_id=1297d063-ddf9-42f1-bb3b-870344120372 mcp_calls=3 context_size=810 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-29 11:49:17 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=4 context_size=912 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-29 11:49:17 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=3 context_size=718 time_spent=0.00s stop_reason=budget_limit_reached
+2026-09-29 11:49:17 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=4 context_size=912 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-29 11:49:17 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=4 context_size=912 time_spent=0.00s stop_reason=llm_rate_limit_exceeded
+2026-09-29 12:34:21 [INFO] [app.main]: PW1 API application starting up...
+2026-09-29 12:34:21 [INFO] [app.main]: MCP session manager initialized on /mcp
+2026-09-29 12:37:33 [INFO] [app.curator]: curation_summary: execution_id=d2868905-e29a-451c-b29b-366754a32630 mcp_calls=5 context_size=1683 time_spent=72.28s stop_reason=root_cause_identified
+2026-09-29 12:42:01 [INFO] [app.main]: PW1 API application starting up...
+2026-09-29 12:42:01 [INFO] [app.main]: MCP session manager initialized on /mcp
+2026-09-29 12:44:20 [INFO] [app.curator]: curation_summary: execution_id=5027c86e-2352-457d-99b8-50353867891a mcp_calls=4 context_size=1346 time_spent=23.68s stop_reason=curator_error
+2026-09-29 12:47:16 [INFO] [app.main]: PW1 API application shutting down...
+2026-09-29 12:47:48 [INFO] [app.main]: PW1 API application starting up...
+2026-09-29 12:47:48 [INFO] [app.main]: MCP session manager initialized on /mcp
+2026-09-29 13:42:34 [INFO] [app.main]: PW1 API application shutting down...

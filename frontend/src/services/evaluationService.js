@@ -45,3 +45,8 @@ export async function getRecentExperiments(limit = 20) {
   const response = await apiClient.get(`/evaluation/experiments?limit=${limit}`);
   return response.data;
 }
+
+export function getExportCsvUrl() {
+  return `${API_URL}/evaluation/export/csv`;
+}
+

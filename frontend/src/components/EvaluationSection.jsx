@@ -14,11 +14,13 @@ import {
   RefreshCw,
   ChevronRight,
   ExternalLink,
+  Download,
 } from 'lucide-react';
 import {
   getBenchmarks,
   runPairedEvaluation,
   getRecentExperiments,
+  getExportCsvUrl,
 } from '../services/evaluationService';
 
 export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
@@ -81,21 +83,32 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
         <div className="evaluation-header-left">
           <FlaskConical size={20} className="text-accent" />
           <div>
-            <h3 className="evaluation-title">M8: Baseline Comparison & Empirical Evaluation</h3>
+            <h3 className="evaluation-title">Benchmark Evaluation & Baseline Comparison</h3>
             <p className="evaluation-subtitle">
               Evaluating <strong>Baseline (Full Context)</strong> vs <strong>Dynamic (Curated Context via MCP)</strong> on controlled benchmarks
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          className="history-refresh-btn"
-          onClick={fetchHistory}
-          title="Refresh experiment records"
-        >
-          <RefreshCw size={14} className={isLoadingHistory ? 'spin-icon' : ''} />
-          <span>Refresh Data</span>
-        </button>
+        <div className="evaluation-header-actions">
+          <a
+            href={getExportCsvUrl()}
+            download="m8_experiments.csv"
+            className="action-btn export-csv-btn"
+            title="Download full evaluation dataset (CSV)"
+          >
+            <Download size={14} />
+            <span>Export CSV</span>
+          </a>
+          <button
+            type="button"
+            className="history-refresh-btn"
+            onClick={fetchHistory}
+            title="Refresh experiment records"
+          >
+            <RefreshCw size={14} className={isLoadingHistory ? 'spin-icon' : ''} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Benchmark Task Selection Toolbar */}
@@ -186,6 +199,62 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
             </div>
           </div>
 
+          <div className="comparison-kpi-grid">
+            <div className="kpi-card highlight-kpi">
+              <span className="kpi-label">Context Reduction</span>
+              <div className="kpi-value text-reduction">
+                {comparisonResult.context_reduction_percent !== null
+                  ? `-${comparisonResult.context_reduction_percent}%`
+                  : 'N/A'}
+              </div>
+              <span className="kpi-sub">
+                {(comparisonResult.dynamic.context_chars ?? 0).toLocaleString()} vs {(comparisonResult.baseline.context_chars ?? 0).toLocaleString()} chars
+              </span>
+            </div>
+
+            <div className="kpi-card">
+              <span className="kpi-label">Token Savings</span>
+              <div className="kpi-value">
+                {comparisonResult.token_reduction_percent !== null
+                  ? `-${comparisonResult.token_reduction_percent}%`
+                  : 'N/A'}
+              </div>
+              <span className="kpi-sub">
+                {comparisonResult.dynamic.token_usage_available && comparisonResult.dynamic.total_tokens !== null
+                  ? `${comparisonResult.dynamic.total_tokens.toLocaleString()} tokens`
+                  : 'Tokens tracked on OpenRouter'}
+              </span>
+            </div>
+
+            <div className="kpi-card">
+              <span className="kpi-label">Targeted MCP Calls</span>
+              <div className="kpi-value text-accent">
+                {comparisonResult.dynamic.mcp_calls}
+              </div>
+              <span className="kpi-sub">Selective runtime state queries</span>
+            </div>
+
+            <div className="kpi-card">
+              <span className="kpi-label">Repair Correctness</span>
+              <div className="kpi-value">
+                {comparisonResult.dynamic.fix_correct ? (
+                  <span className="text-success flex-row items-center gap-1">
+                    <CheckCircle2 size={16} /> Validated
+                  </span>
+                ) : comparisonResult.dynamic.re_execution_passed ? (
+                  <span className="text-warning flex-row items-center gap-1">
+                    Passed (Exit 0)
+                  </span>
+                ) : (
+                  <span className="text-error flex-row items-center gap-1">
+                    <XCircle size={16} /> Needs Review
+                  </span>
+                )}
+              </div>
+              <span className="kpi-sub">Re-execution & semantic validation</span>
+            </div>
+          </div>
+
           <div className="comparison-table-wrapper">
             <table className="comparison-table">
               <thead>
@@ -197,6 +266,9 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                 </tr>
               </thead>
               <tbody>
+                <tr className="table-group-header">
+                  <td colSpan={4}>Context & Token Consumption</td>
+                </tr>
                 <tr>
                   <td className="metric-name">Status</td>
                   <td>
@@ -267,6 +339,9 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                       : 'N/A (provider metadata unavailable)'}
                   </td>
                 </tr>
+                <tr className="table-group-header">
+                  <td colSpan={4}>Selective Retrieval & Agent Operations</td>
+                </tr>
                 <tr>
                   <td className="metric-name">LLM Calls</td>
                   <td>{comparisonResult.baseline.llm_calls}</td>
@@ -282,6 +357,9 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                   <td>0 (Direct Context)</td>
                   <td>{comparisonResult.dynamic.mcp_calls} (Selective Retrieval)</td>
                   <td>Dynamic query via MCP</td>
+                </tr>
+                <tr className="table-group-header">
+                  <td colSpan={4}>Latency & Execution Timing</td>
                 </tr>
                 <tr>
                   <td className="metric-name">LLM Time</td>
@@ -312,6 +390,9 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
                   <td>{(comparisonResult.baseline.total_experiment_time_ms || comparisonResult.baseline.total_time_ms || 0).toFixed(1)} ms</td>
                   <td>{(comparisonResult.dynamic.total_experiment_time_ms || comparisonResult.dynamic.total_time_ms || 0).toFixed(1)} ms</td>
                   <td>{comparisonResult.time_difference_ms > 0 ? `+${comparisonResult.time_difference_ms} ms` : `${comparisonResult.time_difference_ms} ms`}</td>
+                </tr>
+                <tr className="table-group-header">
+                  <td colSpan={4}>Diagnostic & Repair Effectiveness</td>
                 </tr>
                 <tr>
                   <td className="metric-name">Root Cause Identified</td>
@@ -396,14 +477,16 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
         <div className="history-card-header">
           <div className="flex-row items-center gap-2">
             <Database size={16} className="text-accent" />
-            <h4>Logged Experiment Records (m8_experiments.csv)</h4>
+            <h4>Evaluation Experiment History</h4>
           </div>
-          <span className="text-muted text-xs">Dataset persisted on backend</span>
+          <span className="text-muted text-xs">Canonical benchmark dataset</span>
         </div>
 
         {recentExperiments.length === 0 ? (
           <div className="empty-history">
-            No evaluation runs logged yet. Run a paired evaluation or run debugging to generate records.
+            <Database size={28} className="empty-icon text-dim" />
+            <p className="empty-title">No Evaluation Runs Recorded</p>
+            <p className="empty-subtitle">Select a benchmark task above and click <strong>"Run Paired Evaluation"</strong> to record experimental metrics.</p>
           </div>
         ) : (
           <div className="history-table-wrapper">

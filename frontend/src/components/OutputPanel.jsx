@@ -36,12 +36,20 @@ export const OutputPanel = ({
       <div className="output-panel loading-state">
         <div className="output-header">
           <div className="output-header-left">
-            <Terminal size={18} />
+            <Terminal size={16} />
             <span>Execution Output</span>
           </div>
+          <span className="status-badge status-loading">
+            <Loader2 size={12} className="spinner-icon" />
+            <span>Running</span>
+          </span>
         </div>
         <div className="output-placeholder">
-          <div className="pulse-loader">Running program in Docker sandbox...</div>
+          <div className="empty-state-content">
+            <Loader2 size={28} className="spinner-icon text-accent" />
+            <p className="empty-title">Executing Program</p>
+            <p className="empty-subtitle">Running code in isolated execution sandbox...</p>
+          </div>
         </div>
       </div>
     );
@@ -52,12 +60,19 @@ export const OutputPanel = ({
       <div className="output-panel empty-state">
         <div className="output-header">
           <div className="output-header-left">
-            <Terminal size={18} />
+            <Terminal size={16} />
             <span>Execution Output</span>
           </div>
+          <span className="status-badge status-idle">
+            <span>Ready</span>
+          </span>
         </div>
         <div className="output-placeholder">
-          Click <strong>"Run Code"</strong> to execute code and view output.
+          <div className="empty-state-content">
+            <Terminal size={32} className="empty-icon text-dim" />
+            <p className="empty-title">Ready to Execute</p>
+            <p className="empty-subtitle">Click <strong>"Run Code"</strong> above to execute and view runtime output.</p>
+          </div>
         </div>
       </div>
     );

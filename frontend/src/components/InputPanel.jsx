@@ -27,7 +27,7 @@ export const InputPanel = ({ stdin, onChange, disabled }) => {
           value={stdin}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
-          placeholder={`Enter standard input for Scanner / input() here...\nExample:\n5\n10 20 30 40 50`}
+          placeholder="Enter standard input (stdin) for your program (optional)..."
           className="stdin-textarea"
           rows={3}
         />
