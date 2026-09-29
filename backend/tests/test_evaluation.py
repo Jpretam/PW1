@@ -271,31 +271,41 @@ def test_token_reduction_calculation_and_unavailable_handling():
 async def test_experiment_pairing_and_single_record_creation(tmp_path):
     """5 & 6. Verify shared evaluation_id links paired runs, and 1 request creates 1 record per mode."""
     isolated_logger = ExperimentLogger(data_dir=tmp_path)
-    service = EvaluationService(logger=isolated_logger)
 
     with patch("app.agent.debugger.get_llm") as mock_get_llm, \
+         patch("app.agent.fixer.get_llm") as mock_fixer_llm, \
+         patch("app.agent.curator.get_llm") as mock_curator_llm, \
          patch("app.agent.curator.streamable_http_client") as mock_client, \
-         patch("app.agent.curator.ClientSession"):
+         patch("app.agent.curator.ClientSession") as mock_session_cls:
 
-        mock_ctx = AsyncMock()
         mock_read = AsyncMock()
         mock_write = AsyncMock()
         mock_client.return_value.__aenter__.return_value = (mock_read, mock_write)
 
+        mock_session = AsyncMock()
+        mock_session_cls.return_value.__aenter__.return_value = mock_session
+
+        mock_result = MagicMock()
+        mock_result.isError = False
+        mock_result.structured_content = {"error_type": "ZeroDivisionError", "line": 5, "file": "script.py"}
+        mock_session.call_tool.return_value = mock_result
+
+        from app.agent.curator import RetrievalDecision
         mock_llm = MagicMock()
         mock_model = AsyncMock()
-        mock_model.ainvoke.return_value = DebugDiagnosis(
-            execution_id="dummy",
-            diagnosis="ZeroDivisionError",
-            root_cause="Division by zero",
-            evidence=[],
-            queries_used=[],
-            confidence=0.9,
-            suggested_fix="return 0",
+        mock_model.ainvoke.return_value = RetrievalDecision(
+            tool_calls=[],
+            reason="Root cause identified",
+            is_sufficient=True,
+            direction="initial",
         )
         mock_llm.with_structured_output.return_value = mock_model
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content="def calculate(x): return 10 / x if x != 0 else 0\nprocess()"))
         mock_get_llm.return_value = mock_llm
+        mock_fixer_llm.return_value = mock_llm
+        mock_curator_llm.return_value = mock_llm
+
+        service = EvaluationService(logger=isolated_logger)
 
         # Run paired experiment
         result = await service.run_paired_experiment(bug_id="B001")

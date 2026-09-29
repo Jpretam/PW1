@@ -64,7 +64,7 @@ class EvaluationService:
             mode=clean_mode,
             event="experiment_started",
             step=step,
-            data={"language": language, "model": model_name, "code_chars": len(code)},
+            data={"bug_id": bug_id, "language": language, "model": model_name, "code_chars": len(code)},
         )
 
         overall_start = time.time()
@@ -186,6 +186,19 @@ class EvaluationService:
             step=step,
             data={
                 "fix_generated": fix_generated,
+                "attempts": fix_result.attempts,
+            },
+        )
+
+        step += 1
+        self.logger.log_event(
+            evaluation_id=eval_id,
+            experiment_id=exp_id,
+            bug_id=bug_id,
+            mode=clean_mode,
+            event="re_execution_completed",
+            step=step,
+            data={
                 "re_execution_passed": re_execution_passed,
                 "fix_correct": fix_correct,
             },

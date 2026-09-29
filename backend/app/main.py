@@ -1,9 +1,12 @@
+import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 
+from app.logging_config import setup_logging, get_app_logger
 from app.routes.execution import router as execution_router
 from app.routes.traces import router as traces_router
 from app.routes.debug import router as debug_router
@@ -12,6 +15,8 @@ from app.evaluation.routes import router as evaluation_router
 from app.mcp.server import mcp
 
 load_dotenv()
+setup_logging()
+app_logger = get_app_logger("main")
 
 # Initialise MCP's Streamable HTTP session manager within FastAPI's lifespan.
 mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp")
@@ -19,8 +24,14 @@ mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("mcp").setLevel(logging.WARNING)
+    app_logger.info("PW1 API application starting up...")
     async with mcp.session_manager.run():
+        app_logger.info("MCP session manager initialized on /mcp")
         yield
+    app_logger.info("PW1 API application shutting down...")
 
 
 app = FastAPI(
@@ -30,11 +41,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    app_logger.error("Unhandled exception processing %s %s: %s", request.method, request.url.path, str(exc), exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error occurred.", "error": str(exc)},
+    )
+
 # CORS configuration
 raw_cors = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 origins = [origin.strip() for origin in raw_cors.split(",") if origin.strip()]
 
-from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
