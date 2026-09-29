@@ -26,7 +26,7 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DATA_DIR = BACKEND_ROOT / "data"
 DEFAULT_M8_DATA_DIR = DEFAULT_DATA_DIR / "m8"
 DEFAULT_EXPERIMENTS_DIR = DEFAULT_M8_DATA_DIR / "experiments"
-DEFAULT_LOGS_DIR = BACKEND_ROOT / "logs" / "application"
+DEFAULT_LOGS_DIR = BACKEND_ROOT / "logs"
 
 CSV_FILENAME = "m8_experiments.csv"
 JSONL_FILENAME = "m8_events.jsonl"
@@ -80,38 +80,60 @@ class ExperimentLogger:
             self.data_dir = Path(data_dir)
             self.m8_data_dir = self.data_dir
             self.experiments_dir = self.data_dir / "experiments"
-            self.legacy_csv_path: Optional[Path] = None
         else:
             self.data_dir = DEFAULT_M8_DATA_DIR
             self.m8_data_dir = DEFAULT_M8_DATA_DIR
             self.experiments_dir = DEFAULT_EXPERIMENTS_DIR
-            self.legacy_csv_path = DEFAULT_DATA_DIR / CSV_FILENAME
 
         self.csv_path = self.data_dir / CSV_FILENAME
         self.jsonl_path = self.data_dir / JSONL_FILENAME
         self._ensure_files()
 
     def _ensure_files(self) -> None:
-        """Create directories and CSV header, migrating legacy CSV if present."""
+        """Create directories and CSV header if not present."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.experiments_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Master CSV in data/m8/
+        # Master CSV in data/m8/
         if not self.csv_path.exists():
-            # If legacy CSV exists in data/m8_experiments.csv, copy historical records over
-            if self.legacy_csv_path and self.legacy_csv_path.exists():
-                shutil.copy2(self.legacy_csv_path, self.csv_path)
-            else:
-                with open(self.csv_path, mode="w", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
-                    writer.writeheader()
-
-        # 2. Ensure legacy CSV exists with headers if in default mode
-        if self.legacy_csv_path and not self.legacy_csv_path.exists():
-            self.legacy_csv_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.legacy_csv_path, mode="w", newline="", encoding="utf-8") as f:
+            with open(self.csv_path, mode="w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
                 writer.writeheader()
+
+    def _print_console_event(
+        self,
+        event: str,
+        evaluation_id: str,
+        mode: str,
+        step: int,
+        data: dict[str, Any],
+    ) -> None:
+        """Format and print clear, uncluttered console event sequence."""
+        if event == "experiment_started":
+            print(f"[{event}] eval_id={evaluation_id} mode={mode} bug_id={data.get('bug_id', '')} lang={data.get('language', '')}", flush=True)
+        elif event == "execution_completed":
+            print(f"[{event}] execution_id={data.get('execution_id', '')} exit_code={data.get('exit_code')} status={data.get('status')}", flush=True)
+        elif event == "mcp_retrieval":
+            print(f"[{event}] step={step} tool={data.get('mcp_tool')} duration_ms={data.get('duration_ms')} success={data.get('success')}", flush=True)
+        elif event == "llm_decision":
+            print(f"[{event}] step={step} direction={data.get('direction')} is_sufficient={data.get('is_sufficient')}", flush=True)
+        elif event == "curation_completed":
+            print(f"[{event}] curated_chars={data.get('curated_context_chars')} mcp_calls={data.get('mcp_calls')} stop_reason={data.get('stop_reason')}", flush=True)
+        elif event == "context_prepared":
+            print(f"[{event}] baseline_chars={data.get('baseline_context_chars')}", flush=True)
+        elif event == "fix_generated":
+            print(f"[{event}] fix_generated={data.get('fix_generated')}", flush=True)
+        elif event == "re_execution_completed":
+            print(f"[{event}] re_execution_passed={data.get('re_execution_passed')} fix_correct={data.get('fix_correct')}", flush=True)
+        elif event == "experiment_completed":
+            print(f"[{event}] status={data.get('status')} stop_reason={data.get('stop_reason')} total_time_ms={data.get('total_experiment_time_ms')}", flush=True)
+        elif event == "evaluation_started":
+            print(f"[{event}] evaluation_id={evaluation_id} bug_id={data.get('bug_id', '')}", flush=True)
+        elif event == "evaluation_completed":
+            print(f"[{event}] status={data.get('status')} time_diff_ms={data.get('time_difference_ms')}", flush=True)
+        else:
+            details = " ".join(f"{k}={v}" for k, v in data.items() if not isinstance(v, (dict, list)))
+            print(f"[{event}] step={step} {details}".strip(), flush=True)
 
     def log_event(
         self,
@@ -130,6 +152,7 @@ class ExperimentLogger:
         with _log_lock:
             now_iso = datetime.now(timezone.utc).isoformat()
             clean_eval_id = evaluation_id or "unassigned"
+            payload_data = data or {}
 
             event_entry = {
                 "timestamp": now_iso,
@@ -139,17 +162,20 @@ class ExperimentLogger:
                 "mode": mode,
                 "event": event,
                 "step": step,
-                "data": data or {},
+                "data": payload_data,
             }
 
-            # Global event log
+            # 1. Output clean console sequence line
+            self._print_console_event(event, clean_eval_id, mode, step, payload_data)
+
+            # 2. Global event log
             try:
                 with open(self.jsonl_path, mode="a", encoding="utf-8") as f:
                     f.write(json.dumps(event_entry) + "\n")
             except Exception:
                 pass
 
-            # Per-evaluation event log
+            # 3. Per-evaluation event log
             try:
                 eval_dir = self.experiments_dir / clean_eval_id
                 eval_dir.mkdir(parents=True, exist_ok=True)
@@ -163,7 +189,7 @@ class ExperimentLogger:
     def log_experiment(self, record: ExperimentRecord, detailed_events: list[dict[str, Any]] | None = None) -> None:
         """
         Record a completed experiment run:
-        1. Appends row to master m8_experiments.csv (and syncs to legacy CSV).
+        1. Appends row to master m8_experiments.csv.
         2. Saves baseline.json or dynamic.json artifact in data/m8/experiments/<evaluation_id>/.
         3. Generates/updates summary.json.
         """
@@ -183,14 +209,6 @@ class ExperimentLogger:
             with open(self.csv_path, mode="a", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
                 writer.writerow(csv_row)
-
-            if self.legacy_csv_path and self.legacy_csv_path != self.csv_path:
-                try:
-                    with open(self.legacy_csv_path, mode="a", newline="", encoding="utf-8") as f:
-                        writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
-                        writer.writerow(csv_row)
-                except Exception:
-                    pass
 
             # 2. Save individual experiment JSON artifact
             clean_eval_id = record.evaluation_id or "unassigned"

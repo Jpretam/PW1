@@ -11,6 +11,9 @@ from app.agent.token_tracker import TokenUsageCallback
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from app.logging_config import get_app_logger
+
+app_logger = get_app_logger("curator")
 
 MCP_SERVER_URL = "http://localhost:8000/mcp"
 
@@ -76,23 +79,9 @@ class ContextCurator:
         )
         
         if is_duplicate:
-            logger.info(json.dumps({
-                "event": "duplicate_retrieval_skipped",
-                "execution_id": state["execution_id"],
-                "step": telemetry["mcp_calls"] + 1,
-                "mcp_tool_name": tool_name
-            }))
             state["remaining_budget"] -= 1
             return {"error": "duplicate skipped"}
             
-        logger.info(json.dumps({
-            "event": "mcp_retrieval",
-            "execution_id": state["execution_id"],
-            "step": telemetry["mcp_calls"] + 1,
-            "mcp_tool_name": tool_name,
-            "tool_args": tool_args
-        }))
-        
         mcp_start = time.time()
         try:
             result_obj = await session.call_tool(tool_name, arguments=tool_args)
@@ -174,24 +163,19 @@ class ContextCurator:
                 vars_got = len(result)
                 telemetry["variables_retrieved"] += vars_got
                 
-        logger.info(json.dumps({
-            "event": "retrieval_result",
-            "execution_id": state["execution_id"],
-            "step": telemetry["mcp_calls"],
-            "mcp_tool_name": tool_name,
-            "context_size": chars,
-            "relevance": relevance,
-            "events_retrieved": events_got,
-            "source_lines_retrieved": lines_got,
-            "variables_retrieved": vars_got
-        }))
+        duration_ms = round(mcp_duration * 1000.0, 2)
+        success = not is_error
+        logger.info(
+            f"[mcp_retrieval] step={telemetry['mcp_calls']} tool={tool_name} duration_ms={duration_ms} success={success}"
+        )
+        app_logger.debug(
+            "mcp_retrieval: execution_id=%s tool=%s step=%d duration_ms=%.2f success=%s size=%d",
+            state["execution_id"], tool_name, telemetry["mcp_calls"], duration_ms, success, chars
+        )
         
         state["remaining_budget"] -= 1
         if state["remaining_budget"] == 0:
-            logger.info(json.dumps({
-                "event": "budget_limit_reached",
-                "execution_id": state["execution_id"]
-            }))
+            app_logger.debug("budget_limit_reached: execution_id=%s", state["execution_id"])
             
         return result
 
@@ -235,19 +219,11 @@ class ContextCurator:
             "mcp_total_time": 0.0
         }
         
-        logger.info(json.dumps({
-            "event": "curation_start",
-            "execution_id": execution_id,
-            "max_calls": self.max_calls
-        }))
+        app_logger.debug("curation_start: execution_id=%s max_calls=%d", execution_id, self.max_calls)
 
         if initial_context:
             state["known_context"].append({"source": "initial_context", "data": initial_context})
-            logger.info(json.dumps({
-                "event": "initial_context",
-                "execution_id": execution_id,
-                "context_size": len(initial_context)
-            }))
+            app_logger.debug("initial_context: execution_id=%s size=%d", execution_id, len(initial_context))
 
         try:
             transport_start = time.time()
@@ -282,28 +258,11 @@ class ContextCurator:
         chars, _ = self._size(final_context)
         telemetry["total_curated_context_size"] = chars
         
-        logger.info(json.dumps({
-            "event": "curation_summary",
-            "execution_id": execution_id,
-            "mcp_calls": telemetry["mcp_calls"],
-            "events_retrieved": telemetry["events_retrieved"],
-            "source_lines_retrieved": telemetry["source_lines_retrieved"],
-            "variables_retrieved": telemetry["variables_retrieved"],
-            "total_curated_context_size": chars,
-            "investigation_depth": telemetry["investigation_depth"],
-            "time_spent": telemetry["time_spent"],
-            "llm_calls": telemetry["llm_calls"],
-            "llm_successes": telemetry["llm_successes"],
-            "llm_failures": telemetry["llm_failures"],
-            "llm_time": telemetry["llm_time"],
-            "curator_input_tokens": telemetry["curator_input_tokens"],
-            "curator_output_tokens": telemetry["curator_output_tokens"],
-            "curator_total_tokens": telemetry["curator_total_tokens"],
-            "mcp_query_time": telemetry["mcp_query_time"],
-            "mcp_transport_time": telemetry["mcp_transport_time"],
-            "mcp_total_time": telemetry["mcp_total_time"],
-            "stop_reason": telemetry.get("stop_reason", "unknown")
-        }))
+        app_logger.info(
+            "curation_summary: execution_id=%s mcp_calls=%d context_size=%d time_spent=%.2fs stop_reason=%s",
+            execution_id, telemetry["mcp_calls"], chars, telemetry["time_spent"], telemetry.get("stop_reason", "unknown")
+        )
+        app_logger.debug("curation_summary_telemetry: %s", json.dumps(telemetry, default=str))
         
         return CurationResult(context=final_context, telemetry=telemetry)
 
@@ -354,11 +313,7 @@ class ContextCurator:
                 
                 if is_static_error and has_source:
                     telemetry["stop_reason"] = "root_cause_identified"
-                    logger.info(json.dumps({
-                        "event": "root_cause_identified",
-                        "execution_id": execution_id,
-                        "reason": f"Identified static failure '{err_type}' with full source code context. No dynamic runtime trace exists."
-                    }))
+                    app_logger.debug("root_cause_identified: execution_id=%s static failure '%s'", execution_id, err_type)
                     return
 
         # PHASE 2: LLM Curation (Only if necessary)
@@ -392,15 +347,14 @@ CRITICAL STOPPING RULES:
                 telemetry["llm_successes"] += 1
                 telemetry["llm_time"] += (time.time() - llm_start)
                 
-                logger.info(json.dumps({
-                    "event": "curation_decision",
-                    "execution_id": execution_id,
-                    "step": telemetry["mcp_calls"] + 1,
-                    "mcp_tool_name": [t.tool_name for t in decision.tool_calls] if decision.tool_calls else None,
-                    "reason": decision.reason,
-                    "direction": decision.direction,
-                    "is_sufficient": decision.is_sufficient
-                }))
+                duration_ms = round((time.time() - llm_start) * 1000.0, 2)
+                logger.info(
+                    f"[llm_decision] step={telemetry['mcp_calls'] + 1} direction={decision.direction} is_sufficient={decision.is_sufficient}"
+                )
+                app_logger.debug(
+                    "llm_decision: execution_id=%s step=%d direction=%s is_sufficient=%s duration_ms=%.2f reason=%s",
+                    execution_id, telemetry["mcp_calls"] + 1, decision.direction, decision.is_sufficient, duration_ms, decision.reason
+                )
             except Exception as e:
                 telemetry["llm_failures"] += 1
                 telemetry["llm_time"] += (time.time() - llm_start)
@@ -417,21 +371,13 @@ CRITICAL STOPPING RULES:
 
             if decision.is_sufficient:
                 telemetry["stop_reason"] = "root_cause_identified"
-                logger.info(json.dumps({
-                    "event": "root_cause_identified",
-                    "execution_id": execution_id,
-                    "reason": decision.reason
-                }))
+                app_logger.debug("root_cause_identified: execution_id=%s reason=%s", execution_id, decision.reason)
                 break
                 
             if not decision.tool_calls:
                 if not decision.is_sufficient:
                     telemetry["stop_reason"] = "no_further_context_available"
-                    logger.info(json.dumps({
-                        "event": "curation_stop",
-                        "execution_id": execution_id,
-                        "reason": "Agent decided to stop without identifying root cause. Investigation incomplete."
-                    }))
+                    app_logger.debug("curation_stop: execution_id=%s incomplete", execution_id)
                 break
                 
             telemetry["investigation_depth"] += 1
