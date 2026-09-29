@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from app.agent.fixer import FixerAgent
 from app.agent.models import FixRequest, FixResult
+from app.logging_config import get_app_logger
+
+logger = get_app_logger("fix_route")
 
 router = APIRouter(
     prefix="/debug",
@@ -27,12 +30,14 @@ async def fix_bug(
     except HTTPException:
         raise
     except ValueError as exc:
+        logger.warning("Fix request trace not found: %s", exc)
         raise HTTPException(
             status_code=404,
-            detail=str(exc),
+            detail="Execution trace not found.",
         )
     except Exception as exc:
+        logger.error("Fixer agent failed: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Fixer agent failed: {str(exc)}",
+            detail="AI service is currently unavailable. Please try again later.",
         )

@@ -19,21 +19,12 @@ export const executeCode = async (language, code, stdin = '') => {
     });
     return response.data;
   } catch (error) {
-    if (error.response && error.response.data) {
-      return {
-        status: 'execution_error',
-        language,
-        stdout: '',
-        stderr: error.response.data.detail || 'Backend API error occurred.',
-        exit_code: 1,
-        execution_time: 0,
-      };
-    } else if (error.code === 'ECONNABORTED') {
+    if (error.code === 'ECONNABORTED') {
       return {
         status: 'timeout',
         language,
         stdout: '',
-        stderr: 'Network request timed out contacting execution backend.',
+        stderr: 'Request timed out. Please try again.',
         exit_code: null,
         execution_time: 15.0,
       };
@@ -42,7 +33,7 @@ export const executeCode = async (language, code, stdin = '') => {
         status: 'execution_error',
         language,
         stdout: '',
-        stderr: `Unable to connect to backend execution service (${API_URL}). Please ensure the FastAPI backend is running.`,
+        stderr: 'Something went wrong. Please try again.',
         exit_code: 1,
         execution_time: 0,
       };

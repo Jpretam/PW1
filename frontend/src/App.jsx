@@ -10,6 +10,7 @@ import { FixHistorySection } from './components/FixHistorySection';
 import { EvaluationSection } from './components/EvaluationSection';
 import { executeCode } from './services/api';
 import { diagnoseExecution, fixExecution } from './services/fixService';
+import { getFriendlyErrorMessage, AI_UNAVAILABLE_MESSAGE, GENERIC_ERROR_MESSAGE } from './utils/errorUtils';
 
 const STARTER_CODE = {
   python: `def main():
@@ -109,7 +110,7 @@ export default function App() {
         status: 'execution_error',
         language,
         stdout: '',
-        stderr: err.message || 'An unknown error occurred during execution.',
+        stderr: getFriendlyErrorMessage(err, GENERIC_ERROR_MESSAGE),
         exit_code: 1,
         execution_time: 0,
       });
@@ -131,7 +132,7 @@ export default function App() {
       const diagData = await diagnoseExecution(result.execution_id, contextStrategy);
       setDiagnosis(diagData);
     } catch (err) {
-      setFixError(err.message || 'Unable to generate diagnosis. Please try again.');
+      setFixError(getFriendlyErrorMessage(err, AI_UNAVAILABLE_MESSAGE));
     } finally {
       setIsDiagnosing(false);
     }
@@ -182,7 +183,7 @@ export default function App() {
     } catch (err) {
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
-      setFixError(err.message || 'Unable to generate fix. Please try again.');
+      setFixError(getFriendlyErrorMessage(err, AI_UNAVAILABLE_MESSAGE));
     } finally {
       setIsFixing(false);
       setFixStep('');

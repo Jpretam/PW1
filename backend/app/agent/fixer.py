@@ -5,6 +5,9 @@ from app.agent.models import DebugDiagnosis, FixResult
 from app.models.execution import ExecutionLanguage, ExecutionRequest, ExecutionStatus
 from app.services.executor import CodeExecutionService
 from app.services.trace_store.store import store
+from app.logging_config import get_app_logger
+
+logger = get_app_logger("fixer_agent")
 
 
 class FixerAgent:
@@ -96,11 +99,12 @@ Rules:
                 llm_response = await self.llm.ainvoke(prompt)
                 candidate_code = self._clean_code(str(llm_response.content))
             except Exception as exc:
+                logger.error("Fixer agent LLM call failed: %s", exc, exc_info=True)
                 candidate_code = self._heuristic_fix(source_code, error_desc, language_enum)
                 if not candidate_code:
                     final_error = {
                         "status": "llm_error",
-                        "detail": f"Fixer agent LLM call failed ({type(exc).__name__}): {str(exc)}",
+                        "detail": "AI service is currently unavailable. Please try again later.",
                     }
                     break
             last_fixed_code = candidate_code

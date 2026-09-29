@@ -14,6 +14,18 @@ export const DiagnosisPanel = ({ diagnosis }) => {
 
   const confidencePercent = confidence !== undefined ? Math.round(confidence * 100) : null;
 
+  const isTechnicalFailure =
+    diagnosisText &&
+    (diagnosisText.toLowerCase().includes('failed to produce structured output') ||
+      diagnosisText.toLowerCase().includes('structured diagnosis failed') ||
+      diagnosisText.toLowerCase().includes('openrouter') ||
+      diagnosisText.toLowerCase().includes('rate limit') ||
+      diagnosisText.toLowerCase().includes('error code:'));
+
+  const displayDiagnosis = isTechnicalFailure
+    ? 'AI service is currently unavailable. Please try again later.'
+    : (diagnosisText || 'No diagnosis available.');
+
   return (
     <div className="diagnosis-panel">
       <div className="diagnosis-panel-header">
@@ -37,7 +49,7 @@ export const DiagnosisPanel = ({ diagnosis }) => {
             <span>Diagnosis</span>
           </div>
           <div className="block-divider" />
-          <p className="block-text">{diagnosisText || 'No diagnosis available.'}</p>
+          <p className="block-text">{displayDiagnosis}</p>
         </div>
 
         {/* Root Cause Section */}

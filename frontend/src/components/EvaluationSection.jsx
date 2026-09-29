@@ -28,6 +28,7 @@ import {
   getExperimentSummary,
   getExperimentEvents,
 } from '../services/evaluationService';
+import { getFriendlyErrorMessage, AI_UNAVAILABLE_MESSAGE } from '../utils/errorUtils';
 
 export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
   const [benchmarks, setBenchmarks] = useState([]);
@@ -87,7 +88,7 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
         handleInspectEvaluation(res.evaluation_id);
       }
     } catch (err) {
-      setEvalError(err.response?.data?.detail || err.message || 'Evaluation failed to complete.');
+      setEvalError(getFriendlyErrorMessage(err, AI_UNAVAILABLE_MESSAGE));
     } finally {
       setIsRunning(false);
     }
@@ -212,7 +213,7 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
           <RefreshCw size={16} className="spin-icon" />
           <div className="eval-running-text">
             <strong>Evaluation in progress...</strong>
-            <span>Executing paired experiments (Baseline vs Dynamic via MCP) on benchmark {selectedBugId}. Telemetry is streaming to backend.</span>
+            <span>Executing paired experiments (Baseline vs Dynamic via MCP) on benchmark {selectedBugId}. Capturing runtime evaluation telemetry.</span>
           </div>
         </div>
       )}
@@ -575,7 +576,7 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
           <div className="inspector-trace-banner">
             <div className="trace-path-info">
               <span className="trace-label">Experiment Artifact Storage:</span>
-              <code className="trace-path">backend/data/m8/experiments/{selectedEvaluationId}/</code>
+              <code className="trace-path">experiments/{selectedEvaluationId}/</code>
             </div>
             <div className="trace-files-list">
               <span className="trace-file-tag">events.jsonl</span>
@@ -616,7 +617,7 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
           {isLoadingInspection ? (
             <div className="inspector-loading">
               <RefreshCw size={20} className="spin-icon text-accent" />
-              <span>Loading evaluation artifacts & telemetry from backend...</span>
+              <span>Loading evaluation artifacts & telemetry...</span>
             </div>
           ) : (
             <div className="inspector-content">

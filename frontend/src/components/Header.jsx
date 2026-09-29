@@ -19,7 +19,7 @@ export const Header = () => {
         </div>
         <div className="header-status-badge">
           <ShieldCheck size={14} className="text-success" />
-          <span>Isolated Docker Sandbox</span>
+          <span>Secure Execution Sandbox</span>
         </div>
       </div>
     </header>

@@ -122,7 +122,7 @@ export const InteractiveTerminal = ({ language, code, onExecutionFinish }) => {
     };
 
     socket.onerror = () => {
-      term.writeln('\r\n\x1b[31m[WebSocket connection error. Is backend server running on port 8000?]\x1b[0m');
+      term.writeln('\r\n\x1b[31m[Connection error. Please try again later.]\x1b[0m');
       setIsRunning(false);
       setStatusText('Error');
     };

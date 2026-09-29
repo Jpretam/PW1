@@ -10,6 +10,8 @@ const apiClient = axios.create({
   timeout: 180000, // 3 minutes to accommodate multi-step LLM curation & validation
 });
 
+import { getFriendlyErrorMessage, AI_UNAVAILABLE_MESSAGE } from '../utils/errorUtils';
+
 export async function diagnoseExecution(executionId, mode = 'dynamic') {
   if (!executionId) {
     throw new Error('Execution ID is required for diagnosis.');
@@ -22,15 +24,7 @@ export async function diagnoseExecution(executionId, mode = 'dynamic') {
     });
     return response.data;
   } catch (error) {
-    if (error.code === 'ECONNABORTED') {
-      throw new Error('Diagnosis timed out. The AI model is taking longer than expected.');
-    } else if (error.response && error.response.data && error.response.data.detail) {
-      throw new Error(error.response.data.detail);
-    } else if (error.response && error.response.status === 500) {
-      throw new Error('Diagnosis service encountered an error. Please try again.');
-    } else {
-      throw new Error(error.message || 'Unable to generate diagnosis. Please try again.');
-    }
+    throw new Error(getFriendlyErrorMessage(error, AI_UNAVAILABLE_MESSAGE));
   }
 }
 
@@ -47,14 +41,6 @@ export async function fixExecution(executionId, maxAttempts = 3, mode = 'dynamic
     });
     return response.data;
   } catch (error) {
-    if (error.code === 'ECONNABORTED') {
-      throw new Error('Fix generation timed out. The AI model is taking longer than expected.');
-    } else if (error.response && error.response.data && error.response.data.detail) {
-      throw new Error(error.response.data.detail);
-    } else if (error.response && error.response.status === 500) {
-      throw new Error('Bug fixing service encountered an error. Please try again.');
-    } else {
-      throw new Error(error.message || 'Unable to generate fix. Please try again.');
-    }
+    throw new Error(getFriendlyErrorMessage(error, AI_UNAVAILABLE_MESSAGE));
   }
 }

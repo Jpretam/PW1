@@ -6,7 +6,10 @@ from app.agent.llm import get_llm
 from app.agent.models import DebugDiagnosis
 from app.agent.curator import ContextCurator
 from app.agent.token_tracker import TokenUsageCallback
+from app.logging_config import get_app_logger
 from app.services.trace_store.store import store
+
+logger = get_app_logger("debugger_agent")
 
 
 SYSTEM_PROMPT = """
@@ -151,19 +154,16 @@ Full Source Code and Runtime Execution Trace:
 
         except Exception as exc:
             debugger_llm_time = time.time() - llm_start
+            logger.error("Baseline diagnosis LLM call failed: %s", exc, exc_info=True)
             return DebugDiagnosis(
                 execution_id=execution_id,
                 error=error_data,
-                diagnosis=(
-                    "The baseline agent received full context "
-                    "but failed to produce structured output: "
-                    f"{str(exc)}"
-                ),
+                diagnosis="AI service is currently unavailable. Please try again later.",
                 root_cause="",
                 evidence=[],
                 queries_used=[],
                 confidence=0.0,
-                suggested_fix="No reliable code fix could be generated because structured diagnosis failed.",
+                suggested_fix="Suggested fix is unavailable.",
                 telemetry={
                     "mode": "baseline",
                     "execution_id": execution_id,
@@ -317,20 +317,17 @@ Curated Runtime Context:
                 tot_out = None
 
             context_chars = len(curated_context)
+            logger.error("Dynamic diagnosis LLM call failed: %s", exc, exc_info=True)
 
             return DebugDiagnosis(
                 execution_id=execution_id,
                 error=None,
-                diagnosis=(
-                    "The agent received curated context "
-                    "but failed to produce structured output: "
-                    f"{str(exc)}"
-                ),
+                diagnosis="AI service is currently unavailable. Please try again later.",
                 root_cause="",
                 evidence=[],
                 queries_used=curator_telemetry.get("tools_used", []),
                 confidence=0.0,
-                suggested_fix="No reliable code fix could be generated because structured diagnosis failed.",
+                suggested_fix="Suggested fix is unavailable.",
                 telemetry={
                     **curator_telemetry,
                     "mode": "dynamic",

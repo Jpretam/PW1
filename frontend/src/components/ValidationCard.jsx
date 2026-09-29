@@ -1,5 +1,5 @@
-import React from 'react';
 import { CheckCircle2, XCircle, RefreshCw, Hash, AlertTriangle, ArrowRight } from 'lucide-react';
+import { sanitizeErrorDetail, AI_UNAVAILABLE_MESSAGE } from '../utils/errorUtils';
 
 export const ValidationCard = ({ fixResult, onApplyFix }) => {
   if (!fixResult) return null;
@@ -8,11 +8,16 @@ export const ValidationCard = ({ fixResult, onApplyFix }) => {
 
   const formatErrorDetail = (err) => {
     if (!err) return null;
-    if (typeof err === 'string') return err;
     if (typeof err === 'object') {
-      return err.message || err.detail || err.error || JSON.stringify(err, null, 2);
+      if (err.status === 'llm_error') {
+        return AI_UNAVAILABLE_MESSAGE;
+      }
+      if (err.stderr && typeof err.stderr === 'string') {
+        return err.stderr;
+      }
+      return sanitizeErrorDetail(err);
     }
-    return String(err);
+    return sanitizeErrorDetail(err);
   };
 
   return (
