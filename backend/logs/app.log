@@ -313,3 +313,90 @@ Traceback (most recent call last):
         response_data, http_res, http_res_text
     )
 openrouter.errors.toomanyrequestsresponse_error.TooManyRequestsResponseError: Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day
+2026-09-29 16:21:14 [INFO] [app.main]: PW1 API application shutting down...
+2026-09-29 16:21:21 [INFO] [app.main]: PW1 API application starting up...
+2026-09-29 16:21:21 [INFO] [app.main]: MCP session manager initialized on /mcp
+2026-09-29 16:21:41 [INFO] [app.curator]: curation_summary: execution_id=2b960008-f599-4a4e-a294-b9c309817695 mcp_calls=4 context_size=1291 time_spent=4.34s stop_reason=llm_rate_limit_exceeded
+2026-09-29 16:21:42 [ERROR] [app.debugger_agent]: Dynamic diagnosis LLM call failed: Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\debugger.py", line 237, in _diagnose_dynamic
+    result = await self.structured_model.ainvoke(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+    )
+    ^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\runnables\base.py", line 3496, in ainvoke
+    input_ = await coro_with_context(part(), context, create_task=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\runnables\base.py", line 6027, in ainvoke
+    return await self.bound.ainvoke(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 511, in ainvoke
+    llm_result = await self.agenerate_prompt(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<8 lines>...
+    )
+    ^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 1888, in agenerate_prompt
+    return await self.agenerate(
+           ^^^^^^^^^^^^^^^^^^^^^
+        prompt_messages, stop=stop, callbacks=callbacks, **kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 1846, in agenerate
+    raise exceptions[0]
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 2179, in _agenerate_with_cache
+    result = await self._agenerate(
+             ^^^^^^^^^^^^^^^^^^^^^^
+        messages, stop=stop, run_manager=run_manager, **kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_openrouter\chat_models.py", line 590, in _agenerate
+    response = await self.client.chat.send_async(messages=message_dicts, **params)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\openrouter\chat.py", line 1888, in send_async
+    raise errors.TooManyRequestsResponseError(
+        response_data, http_res, http_res_text
+    )
+openrouter.errors.toomanyrequestsresponse_error.TooManyRequestsResponseError: Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day
+2026-09-29 16:21:43 [ERROR] [app.fixer_agent]: Fixer agent LLM call failed: Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\fixer.py", line 99, in fix
+    llm_response = await self.llm.ainvoke(prompt)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 511, in ainvoke
+    llm_result = await self.agenerate_prompt(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<8 lines>...
+    )
+    ^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 1888, in agenerate_prompt
+    return await self.agenerate(
+           ^^^^^^^^^^^^^^^^^^^^^
+        prompt_messages, stop=stop, callbacks=callbacks, **kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 1846, in agenerate
+    raise exceptions[0]
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 2179, in _agenerate_with_cache
+    result = await self._agenerate(
+             ^^^^^^^^^^^^^^^^^^^^^^
+        messages, stop=stop, run_manager=run_manager, **kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\langchain_openrouter\chat_models.py", line 590, in _agenerate
+    response = await self.client.chat.send_async(messages=message_dicts, **params)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\openrouter\chat.py", line 1888, in send_async
+    raise errors.TooManyRequestsResponseError(
+        response_data, http_res, http_res_text
+    )
+openrouter.errors.toomanyrequestsresponse_error.TooManyRequestsResponseError: Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day
+2026-09-29 16:22:06 [INFO] [app.main]: PW1 API application shutting down...
