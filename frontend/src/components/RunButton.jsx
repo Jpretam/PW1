@@ -4,9 +4,11 @@ import { Play, Loader2 } from 'lucide-react';
 export const RunButton = ({ onRun, isLoading }) => {
   return (
     <button
+      type="button"
       onClick={onRun}
       disabled={isLoading}
       className={`run-button ${isLoading ? 'loading' : ''}`}
+      title="Execute code in isolated sandbox"
     >
       {isLoading ? (
         <>
