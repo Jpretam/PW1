@@ -28,4 +28,4 @@ def record_tool_call(tool_name: str, execution_id: str | None, operation: Callab
             "result_size": len(json.dumps(result, default=str)) if result is not None else 0,
             "events_returned": len(result) if isinstance(result, list) else 0,
         }
-        logger.info("mcp_telemetry=%s", json.dumps(payload, default=str))
+        logger.debug("mcp_telemetry=%s", json.dumps(payload, default=str))

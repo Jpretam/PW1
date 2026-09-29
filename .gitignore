@@ -45,3 +45,8 @@ frontend/.vite/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Application Logs
+backend/logs/*.log*
+!backend/logs/.gitkeep
+

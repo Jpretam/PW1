@@ -1,19 +1,33 @@
 """
-Experiment logging module for M8.
-Saves experiment-level records to CSV (m8_experiments.csv) and detailed event telemetry to JSONL (m8_events.jsonl).
+Experiment logging and research artifact management module for M8.
+Logically separates:
+- Master tabular evaluation dataset: data/m8/m8_experiments.csv (and legacy data/m8_experiments.csv)
+- Global event log: data/m8/m8_events.jsonl
+- Per-evaluation artifacts: data/m8/experiments/<evaluation_id>/
+    - events.jsonl
+    - summary.json
+    - baseline.json
+    - dynamic.json
+- Application / operational logs: logs/application/m8_app.log
 """
 
 import csv
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any, Optional
 
-from app.evaluation.models import ExperimentRecord
+from app.evaluation.models import ComparisonResult, ExperimentRecord
 
-# Default data directory relative to backend root
-DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+# Paths relative to backend root
+BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_DATA_DIR = BACKEND_ROOT / "data"
+DEFAULT_M8_DATA_DIR = DEFAULT_DATA_DIR / "m8"
+DEFAULT_EXPERIMENTS_DIR = DEFAULT_M8_DATA_DIR / "experiments"
+DEFAULT_LOGS_DIR = BACKEND_ROOT / "logs"
+
 CSV_FILENAME = "m8_experiments.csv"
 JSONL_FILENAME = "m8_events.jsonl"
 
@@ -55,23 +69,129 @@ CSV_FIELDNAMES = [
 
 
 class ExperimentLogger:
+    """
+    Thread-safe logger and research artifact manager for M8 evaluation.
+    Maintains clean separation between tabular dataset (CSV), raw telemetry (JSONL),
+    and per-run artifact packages (summary.json, baseline.json, dynamic.json, events.jsonl).
+    """
+
     def __init__(self, data_dir: Path | str | None = None) -> None:
-        self.data_dir = Path(data_dir) if data_dir else DEFAULT_DATA_DIR
+        if data_dir:
+            self.data_dir = Path(data_dir)
+            self.m8_data_dir = self.data_dir
+            self.experiments_dir = self.data_dir / "experiments"
+        else:
+            self.data_dir = DEFAULT_M8_DATA_DIR
+            self.m8_data_dir = DEFAULT_M8_DATA_DIR
+            self.experiments_dir = DEFAULT_EXPERIMENTS_DIR
+
         self.csv_path = self.data_dir / CSV_FILENAME
         self.jsonl_path = self.data_dir / JSONL_FILENAME
         self._ensure_files()
 
     def _ensure_files(self) -> None:
-        """Create directory and CSV header if not already present."""
+        """Create directories and CSV header if not present."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.experiments_dir.mkdir(parents=True, exist_ok=True)
+
+        # Master CSV in data/m8/
         if not self.csv_path.exists():
             with open(self.csv_path, mode="w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
                 writer.writeheader()
 
+    def _print_console_event(
+        self,
+        event: str,
+        evaluation_id: str,
+        mode: str,
+        step: int,
+        data: dict[str, Any],
+    ) -> None:
+        """Format and print clear, uncluttered console event sequence."""
+        if event == "experiment_started":
+            print(f"[{event}] eval_id={evaluation_id} mode={mode} bug_id={data.get('bug_id', '')} lang={data.get('language', '')}", flush=True)
+        elif event == "execution_completed":
+            print(f"[{event}] execution_id={data.get('execution_id', '')} exit_code={data.get('exit_code')} status={data.get('status')}", flush=True)
+        elif event == "mcp_retrieval":
+            print(f"[{event}] step={step} tool={data.get('mcp_tool')} duration_ms={data.get('duration_ms')} success={data.get('success')}", flush=True)
+        elif event == "llm_decision":
+            print(f"[{event}] step={step} direction={data.get('direction')} is_sufficient={data.get('is_sufficient')}", flush=True)
+        elif event == "curation_completed":
+            print(f"[{event}] curated_chars={data.get('curated_context_chars')} mcp_calls={data.get('mcp_calls')} stop_reason={data.get('stop_reason')}", flush=True)
+        elif event == "context_prepared":
+            print(f"[{event}] baseline_chars={data.get('baseline_context_chars')}", flush=True)
+        elif event == "fix_generated":
+            print(f"[{event}] fix_generated={data.get('fix_generated')}", flush=True)
+        elif event == "re_execution_completed":
+            print(f"[{event}] re_execution_passed={data.get('re_execution_passed')} fix_correct={data.get('fix_correct')}", flush=True)
+        elif event == "experiment_completed":
+            print(f"[{event}] status={data.get('status')} stop_reason={data.get('stop_reason')} total_time_ms={data.get('total_experiment_time_ms')}", flush=True)
+        elif event == "evaluation_started":
+            print(f"[{event}] evaluation_id={evaluation_id} bug_id={data.get('bug_id', '')}", flush=True)
+        elif event == "evaluation_completed":
+            print(f"[{event}] status={data.get('status')} time_diff_ms={data.get('time_difference_ms')}", flush=True)
+        else:
+            details = " ".join(f"{k}={v}" for k, v in data.items() if not isinstance(v, (dict, list)))
+            print(f"[{event}] step={step} {details}".strip(), flush=True)
+
+    def log_event(
+        self,
+        evaluation_id: str,
+        experiment_id: str,
+        bug_id: str,
+        mode: str,
+        event: str,
+        step: int,
+        data: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """
+        Record a structured lifecycle event both to the global JSONL log
+        and to the per-evaluation events.jsonl artifact.
+        """
+        with _log_lock:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            clean_eval_id = evaluation_id or "unassigned"
+            payload_data = data or {}
+
+            event_entry = {
+                "timestamp": now_iso,
+                "evaluation_id": clean_eval_id,
+                "experiment_id": experiment_id,
+                "bug_id": bug_id,
+                "mode": mode,
+                "event": event,
+                "step": step,
+                "data": payload_data,
+            }
+
+            # 1. Output clean console sequence line
+            self._print_console_event(event, clean_eval_id, mode, step, payload_data)
+
+            # 2. Global event log
+            try:
+                with open(self.jsonl_path, mode="a", encoding="utf-8") as f:
+                    f.write(json.dumps(event_entry) + "\n")
+            except Exception:
+                pass
+
+            # 3. Per-evaluation event log
+            try:
+                eval_dir = self.experiments_dir / clean_eval_id
+                eval_dir.mkdir(parents=True, exist_ok=True)
+                with open(eval_dir / "events.jsonl", mode="a", encoding="utf-8") as f:
+                    f.write(json.dumps(event_entry) + "\n")
+            except Exception:
+                pass
+
+            return event_entry
+
     def log_experiment(self, record: ExperimentRecord, detailed_events: list[dict[str, Any]] | None = None) -> None:
         """
-        Record a completed experiment run to CSV and JSONL.
+        Record a completed experiment run:
+        1. Appends row to master m8_experiments.csv.
+        2. Saves baseline.json or dynamic.json artifact in data/m8/experiments/<evaluation_id>/.
+        3. Generates/updates summary.json.
         """
         with _log_lock:
             # 1. Format row for CSV
@@ -90,16 +210,98 @@ class ExperimentLogger:
                 writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
                 writer.writerow(csv_row)
 
-            # 2. Append detailed events to JSONL
-            event_entry = {
-                "evaluation_id": record.evaluation_id,
-                "experiment_id": record.experiment_id,
-                "timestamp": record.timestamp or datetime.now(timezone.utc).isoformat(),
-                "summary": raw_dict,
-                "events": detailed_events or [],
+            # 2. Save individual experiment JSON artifact
+            clean_eval_id = record.evaluation_id or "unassigned"
+            eval_dir = self.experiments_dir / clean_eval_id
+            eval_dir.mkdir(parents=True, exist_ok=True)
+
+            mode_file = "baseline.json" if record.mode == "baseline" else "dynamic.json"
+            with open(eval_dir / mode_file, mode="w", encoding="utf-8") as f:
+                json.dump(raw_dict, f, indent=2)
+
+            # 3. Create or update summary.json for single-run mode
+            summary_file = eval_dir / "summary.json"
+            if not summary_file.exists() or record.mode == "dynamic":
+                summary_data = {
+                    "evaluation_id": record.evaluation_id,
+                    "experiment_id": record.experiment_id,
+                    "bug_id": record.bug_id,
+                    "mode": record.mode,
+                    "language": record.language,
+                    "model": record.model,
+                    "status": record.status,
+                    "stop_reason": record.stop_reason,
+                    "timestamp": record.timestamp,
+                    "context_chars": record.context_chars,
+                    "tokens": {
+                        "input_tokens": record.input_tokens,
+                        "output_tokens": record.output_tokens,
+                        "total_tokens": record.total_tokens,
+                        "token_usage_available": record.token_usage_available,
+                        "curator_total_tokens": record.curator_total_tokens,
+                        "debugger_total_tokens": record.debugger_total_tokens,
+                    },
+                    "timing_ms": {
+                        "llm_time_ms": record.llm_time_ms,
+                        "mcp_query_time_ms": record.mcp_query_time_ms,
+                        "mcp_transport_time_ms": record.mcp_transport_time_ms,
+                        "mcp_total_time_ms": record.mcp_total_time_ms,
+                        "total_experiment_time_ms": record.total_experiment_time_ms,
+                    },
+                    "effectiveness": {
+                        "root_cause_identified": record.root_cause_identified,
+                        "fix_generated": record.fix_generated,
+                        "fix_correct": record.fix_correct,
+                        "re_execution_passed": record.re_execution_passed,
+                    },
+                    "traceability": {
+                        "evaluation_dir": str(eval_dir),
+                        "events_file": str(eval_dir / "events.jsonl"),
+                        "record_file": str(eval_dir / mode_file),
+                        "csv_dataset": str(self.csv_path),
+                    },
+                }
+                with open(summary_file, mode="w", encoding="utf-8") as f:
+                    json.dump(summary_data, f, indent=2)
+
+    def log_paired_summary(self, comparison: ComparisonResult) -> dict[str, Any]:
+        """
+        Record a comprehensive human-readable summary artifact for a paired evaluation.
+        Stored at data/m8/experiments/<evaluation_id>/summary.json.
+        """
+        with _log_lock:
+            clean_eval_id = comparison.evaluation_id
+            eval_dir = self.experiments_dir / clean_eval_id
+            eval_dir.mkdir(parents=True, exist_ok=True)
+
+            summary_payload = {
+                "evaluation_id": comparison.evaluation_id,
+                "bug_id": comparison.bug_id,
+                "language": comparison.language,
+                "model": comparison.model,
+                "status": comparison.status,
+                "timestamp": comparison.baseline.timestamp or comparison.dynamic.timestamp,
+                "metrics": {
+                    "context_reduction_percent": comparison.context_reduction_percent,
+                    "token_reduction_percent": comparison.token_reduction_percent,
+                    "time_difference_ms": comparison.time_difference_ms,
+                },
+                "baseline": comparison.baseline.model_dump(),
+                "dynamic": comparison.dynamic.model_dump(),
+                "traceability": {
+                    "evaluation_dir": str(eval_dir),
+                    "events_file": str(eval_dir / "events.jsonl"),
+                    "summary_file": str(eval_dir / "summary.json"),
+                    "baseline_file": str(eval_dir / "baseline.json"),
+                    "dynamic_file": str(eval_dir / "dynamic.json"),
+                    "csv_dataset": str(self.csv_path),
+                },
             }
-            with open(self.jsonl_path, mode="a", encoding="utf-8") as f:
-                f.write(json.dumps(event_entry) + "\n")
+
+            with open(eval_dir / "summary.json", mode="w", encoding="utf-8") as f:
+                json.dump(summary_payload, f, indent=2)
+
+            return summary_payload
 
     def get_experiments(self, limit: int = 50) -> list[ExperimentRecord]:
         """
@@ -180,6 +382,76 @@ class ExperimentLogger:
 
         return list(reversed(records))[:limit]
 
+    def get_evaluation_summary(self, evaluation_id: str) -> Optional[dict[str, Any]]:
+        """
+        Retrieve summary artifact for a given evaluation_id.
+        """
+        eval_summary_path = self.experiments_dir / evaluation_id / "summary.json"
+        if eval_summary_path.exists():
+            try:
+                with open(eval_summary_path, mode="r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+
+        # Fallback: construct from CSV records
+        matching = [r for r in self.get_experiments(limit=500) if r.evaluation_id == evaluation_id]
+        if not matching:
+            return None
+
+        baseline_rec = next((r for r in matching if r.mode == "baseline"), None)
+        dynamic_rec = next((r for r in matching if r.mode == "dynamic"), None)
+        primary = dynamic_rec or baseline_rec or matching[0]
+
+        return {
+            "evaluation_id": evaluation_id,
+            "bug_id": primary.bug_id,
+            "language": primary.language,
+            "model": primary.model,
+            "status": primary.status,
+            "timestamp": primary.timestamp,
+            "baseline": baseline_rec.model_dump() if baseline_rec else None,
+            "dynamic": dynamic_rec.model_dump() if dynamic_rec else None,
+            "traceability": {
+                "evaluation_dir": str(self.experiments_dir / evaluation_id),
+                "csv_dataset": str(self.csv_path),
+            },
+        }
+
+    def get_evaluation_events(self, evaluation_id: str) -> list[dict[str, Any]]:
+        """
+        Retrieve structured lifecycle events for a given evaluation_id.
+        """
+        eval_events_path = self.experiments_dir / evaluation_id / "events.jsonl"
+        if eval_events_path.exists():
+            events = []
+            try:
+                with open(eval_events_path, mode="r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            events.append(json.loads(line))
+                return events
+            except Exception:
+                pass
+
+        # Fallback: check global jsonl
+        if self.jsonl_path.exists():
+            matched = []
+            try:
+                with open(self.jsonl_path, mode="r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            obj = json.loads(line)
+                            if obj.get("evaluation_id") == evaluation_id:
+                                matched.append(obj)
+                return matched
+            except Exception:
+                pass
+
+        return []
+
     def get_latest_baseline(self, bug_id: str) -> Optional[ExperimentRecord]:
         """
         Find the most recent valid baseline run for a specific bug_id.
@@ -193,6 +465,10 @@ class ExperimentLogger:
             ):
                 return record
         return None
+
+    def export_csv_path(self) -> Path:
+        """Return the filesystem path to the master CSV dataset."""
+        return self.csv_path
 
 
 # Default shared logger instance

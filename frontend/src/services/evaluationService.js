@@ -50,3 +50,12 @@ export function getExportCsvUrl() {
   return `${API_URL}/evaluation/export/csv`;
 }
 
+export async function getExperimentSummary(evaluationId) {
+  const response = await apiClient.get(`/evaluation/experiments/${evaluationId}/summary`);
+  return response.data;
+}
+
+export async function getExperimentEvents(evaluationId) {
+  const response = await apiClient.get(`/evaluation/experiments/${evaluationId}/events`);
+  return response.data;
+}
