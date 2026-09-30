@@ -400,3 +400,101 @@ Traceback (most recent call last):
     )
 openrouter.errors.toomanyrequestsresponse_error.TooManyRequestsResponseError: Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day
 2026-09-29 16:22:06 [INFO] [app.main]: PW1 API application shutting down...
+2026-09-30 14:01:31 [ERROR] [app.debugger_agent]: Baseline diagnosis LLM call failed: "RetrievalDecision" object has no field "execution_id"
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\debugger.py", line 115, in _diagnose_baseline
+    result.execution_id = execution_id
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1032, in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1079, in _setattr_handler
+    raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+ValueError: "RetrievalDecision" object has no field "execution_id"
+2026-09-30 14:01:31 [INFO] [app.curator]: curation_summary: execution_id=2e76f56b-3190-4c03-9aa2-30fa49ff23f9 mcp_calls=3 context_size=810 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-30 14:01:31 [ERROR] [app.debugger_agent]: Dynamic diagnosis LLM call failed: "RetrievalDecision" object has no field "execution_id"
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\debugger.py", line 243, in _diagnose_dynamic
+    result.execution_id = execution_id
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1032, in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1079, in _setattr_handler
+    raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+ValueError: "RetrievalDecision" object has no field "execution_id"
+2026-09-30 14:10:32 [ERROR] [app.debugger_agent]: Baseline diagnosis LLM call failed: "RetrievalDecision" object has no field "execution_id"
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\debugger.py", line 115, in _diagnose_baseline
+    result.execution_id = execution_id
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1032, in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1079, in _setattr_handler
+    raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+ValueError: "RetrievalDecision" object has no field "execution_id"
+2026-09-30 14:10:32 [INFO] [app.curator]: curation_summary: execution_id=9425da9e-cc2e-4c54-b3a7-e6fbe8fafe82 mcp_calls=3 context_size=810 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-30 14:10:32 [ERROR] [app.debugger_agent]: Dynamic diagnosis LLM call failed: "RetrievalDecision" object has no field "execution_id"
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\debugger.py", line 243, in _diagnose_dynamic
+    result.execution_id = execution_id
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1032, in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1079, in _setattr_handler
+    raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+ValueError: "RetrievalDecision" object has no field "execution_id"
+2026-09-30 14:12:31 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=4 context_size=912 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-30 14:12:31 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=3 context_size=718 time_spent=0.00s stop_reason=budget_limit_reached
+2026-09-30 14:12:31 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=4 context_size=912 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-30 14:12:31 [INFO] [app.curator]: curation_summary: execution_id=exec_123 mcp_calls=4 context_size=912 time_spent=0.00s stop_reason=llm_rate_limit_exceeded
+2026-09-30 14:12:32 [ERROR] [app.debugger_agent]: Baseline diagnosis LLM call failed: "RetrievalDecision" object has no field "execution_id"
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\debugger.py", line 115, in _diagnose_baseline
+    result.execution_id = execution_id
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1032, in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1079, in _setattr_handler
+    raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+ValueError: "RetrievalDecision" object has no field "execution_id"
+2026-09-30 14:12:32 [INFO] [app.curator]: curation_summary: execution_id=3abd497b-52bd-4db5-b993-6be3c43e492c mcp_calls=3 context_size=810 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-30 14:12:32 [ERROR] [app.debugger_agent]: Dynamic diagnosis LLM call failed: "RetrievalDecision" object has no field "execution_id"
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\debugger.py", line 243, in _diagnose_dynamic
+    result.execution_id = execution_id
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1032, in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1079, in _setattr_handler
+    raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+ValueError: "RetrievalDecision" object has no field "execution_id"
+2026-09-30 14:12:47 [INFO] [app.curator]: curation_summary: execution_id=05a56a1b-ccf6-4c6f-9378-67e37c531d2a mcp_calls=0 context_size=2 time_spent=2.72s stop_reason=mcp_transport_error: unhandled errors in a TaskGroup (1 sub-exception)
+2026-09-30 14:13:11 [INFO] [app.curator]: curation_summary: execution_id=3b1a4867-b06d-46b8-a54a-de280f53426c mcp_calls=0 context_size=2 time_spent=2.28s stop_reason=mcp_transport_error: unhandled errors in a TaskGroup (1 sub-exception)
+2026-09-30 14:16:41 [ERROR] [app.debugger_agent]: Baseline diagnosis LLM call failed: "RetrievalDecision" object has no field "execution_id"
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\debugger.py", line 115, in _diagnose_baseline
+    result.execution_id = execution_id
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1032, in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1079, in _setattr_handler
+    raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+ValueError: "RetrievalDecision" object has no field "execution_id"
+2026-09-30 14:16:42 [INFO] [app.curator]: curation_summary: execution_id=fa5e69e9-7d52-4439-a6b1-e7b870a943a2 mcp_calls=3 context_size=810 time_spent=0.00s stop_reason=root_cause_identified
+2026-09-30 14:16:42 [ERROR] [app.debugger_agent]: Dynamic diagnosis LLM call failed: "RetrievalDecision" object has no field "execution_id"
+Traceback (most recent call last):
+  File "C:\Users\ELCOT\Desktop\PW1\backend\app\agent\debugger.py", line 243, in _diagnose_dynamic
+    result.execution_id = execution_id
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1032, in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ELCOT\Desktop\PW1\backend\venv\Lib\site-packages\pydantic\main.py", line 1079, in _setattr_handler
+    raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+ValueError: "RetrievalDecision" object has no field "execution_id"

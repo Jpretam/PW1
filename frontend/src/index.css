@@ -1715,6 +1715,32 @@ html, body {
   line-height: 1.45;
 }
 
+.bench-details-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.8rem;
+}
+
+.bench-detail-item {
+  display: flex;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.bench-detail-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.bench-detail-value {
+  color: var(--text-muted);
+}
+
 .eval-error-banner {
   padding: 10px 14px;
   background: var(--accent-error-bg);

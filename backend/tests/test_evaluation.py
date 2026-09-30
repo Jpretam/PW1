@@ -471,17 +471,19 @@ async def test_invalid_experiment_record_handling(tmp_path):
 
 
 def test_benchmark_registry():
-    """Verify predefined benchmarks B001 to B008 exist with valid specifications."""
+    """Verify predefined benchmarks B001 to B010 exist with valid specifications."""
     benchmarks = get_all_benchmarks()
-    assert len(benchmarks) == 8
+    assert len(benchmarks) == 10
 
     b_ids = [b.bug_id for b in benchmarks]
-    for expected_id in ["B001", "B002", "B003", "B004", "B005", "B006", "B007", "B008"]:
+    for expected_id in ["B001", "B002", "B003", "B004", "B005", "B006", "B007", "B008", "B009", "B010"]:
         assert expected_id in b_ids
         bench = get_benchmark(expected_id)
         assert bench is not None
         assert len(bench.code.strip()) > 0
         assert len(bench.expected_error.strip()) > 0
+        assert len(bench.expected_root_cause.strip()) > 0
+        assert len(bench.expected_behavior.strip()) > 0
 
 
 def test_experiment_logger_schema_and_persistence(tmp_path):
@@ -537,7 +539,7 @@ def test_api_evaluation_routes():
     """Verify the /evaluation REST endpoints."""
     resp = client.get("/evaluation/benchmarks")
     assert resp.status_code == 200
-    assert len(resp.json()) == 8
+    assert len(resp.json()) == 10
 
     resp_b1 = client.get("/evaluation/benchmarks/B001")
     assert resp_b1.status_code == 200
