@@ -222,11 +222,27 @@ export const EvaluationSection = ({ onLoadBenchmarkCode }) => {
       {selectedBench && (
         <div className="benchmark-card">
           <div className="bench-meta">
-            <span className="badge category-badge">{selectedBench.category}</span>
-            <span className="badge error-badge">{selectedBench.expected_error}</span>
+            <span className="badge category-badge">{selectedBench.category || selectedBench.bug_category}</span>
+            <span className="badge error-badge">{selectedBench.expected_error || selectedBench.expected_failure}</span>
             <span className="badge lang-badge">{selectedBench.language}</span>
           </div>
           <p className="bench-desc">{selectedBench.description}</p>
+          {(selectedBench.expected_root_cause || selectedBench.expected_behavior) && (
+            <div className="bench-details-grid">
+              {selectedBench.expected_root_cause && (
+                <div className="bench-detail-item">
+                  <span className="bench-detail-label">Expected Root Cause:</span>
+                  <span className="bench-detail-value">{selectedBench.expected_root_cause}</span>
+                </div>
+              )}
+              {selectedBench.expected_behavior && (
+                <div className="bench-detail-item">
+                  <span className="bench-detail-label">Expected Behavior:</span>
+                  <span className="bench-detail-value">{selectedBench.expected_behavior}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

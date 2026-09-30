@@ -29,7 +29,7 @@ eval_service = EvaluationService()
     response_model=list[BenchmarkCase],
 )
 async def list_benchmarks() -> list[BenchmarkCase]:
-    """Retrieve all fixed debugging benchmark tasks (B001 - B008)."""
+    """Retrieve all fixed debugging benchmark tasks (B001 - B010)."""
     return get_all_benchmarks()
 
 

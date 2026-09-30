@@ -4,7 +4,7 @@ Evaluation models for Milestone 8: Baseline Comparison and Evaluation.
 
 from enum import Enum
 from typing import Any, Optional
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, computed_field
 
 
 class EvaluationMode(str, Enum):
@@ -106,6 +106,42 @@ class BenchmarkCase(BaseModel):
     stdin: str = ""
     expected_error: str
     description: str
+    expected_root_cause: str = ""
+    expected_behavior: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "id" in data and "bug_id" not in data:
+                data["bug_id"] = data["id"]
+            if "bug_category" in data and "category" not in data:
+                data["category"] = data["bug_category"]
+            if "source_code" in data and "code" not in data:
+                data["code"] = data["source_code"]
+            if "expected_failure" in data and "expected_error" not in data:
+                data["expected_error"] = data["expected_failure"]
+        return data
+
+    @computed_field
+    @property
+    def id(self) -> str:
+        return self.bug_id
+
+    @computed_field
+    @property
+    def bug_category(self) -> str:
+        return self.category
+
+    @computed_field
+    @property
+    def source_code(self) -> str:
+        return self.code
+
+    @computed_field
+    @property
+    def expected_failure(self) -> str:
+        return self.expected_error
 
 
 class BenchmarkRunRequest(BaseModel):
